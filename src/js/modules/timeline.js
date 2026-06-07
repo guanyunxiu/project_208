@@ -706,9 +706,11 @@ class TimelineManager {
   }
 
   setZoom(zoom) {
-    this.zoom = zoom;
-    this.pixelsPerSecond = 50 * (zoom / 100);
-    this.zoomValue.textContent = zoom;
+    const newZoom = Math.round(Math.max(20, Math.min(300, zoom)));
+    if (newZoom === this.zoom) return;
+    this.zoom = newZoom;
+    this.pixelsPerSecond = 50 * (newZoom / 100);
+    this.zoomValue.textContent = newZoom;
     this.updateCanvasSize();
     this.render();
   }

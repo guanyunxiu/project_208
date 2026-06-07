@@ -37,6 +37,16 @@ class AudioManager {
     this.setupFileInputs();
     this.setupDragAndDrop();
     this.setupEventListeners();
+    this.renderAllAudioMaterials();
+    this.updateEmptyState();
+  }
+
+  renderAllAudioMaterials() {
+    if (!this.audioList) return;
+    this.audioList.innerHTML = '';
+    for (const audio of this.audios) {
+      this.renderAudioItem(audio);
+    }
   }
 
   setupAudioContext() {
@@ -62,27 +72,8 @@ class AudioManager {
   }
 
   setupFileInputs() {
-    this.bgmFileInput = document.getElementById('bgm-file-input');
-    this.voiceFileInput = document.getElementById('voice-file-input');
-    this.audioList = document.getElementById('audio-list');
+    this.audioList = document.getElementById('audio-materials-list');
     this.emptyState = document.getElementById('audio-empty-state');
-
-    if (this.bgmFileInput) {
-      this.bgmFileInput.addEventListener('change', (e) => this.handleAudioFileSelect(e, 'bgm'));
-    }
-    if (this.voiceFileInput) {
-      this.voiceFileInput.addEventListener('change', (e) => this.handleAudioFileSelect(e, 'voice'));
-    }
-
-    const bgmBtn = document.getElementById('btn-import-bgm');
-    const voiceBtn = document.getElementById('btn-import-voice');
-
-    if (bgmBtn) {
-      bgmBtn.addEventListener('click', () => this.bgmFileInput?.click());
-    }
-    if (voiceBtn) {
-      voiceBtn.addEventListener('click', () => this.voiceFileInput?.click());
-    }
   }
 
   setupDragAndDrop() {

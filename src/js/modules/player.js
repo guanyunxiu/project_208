@@ -237,6 +237,10 @@ class VideoPlayer {
 
     if (this.activeClips.length > 0) {
       this.previewOverlay.classList.add('hidden');
+      const activeClipsAtTime = this.getActiveClipsAtTime(this.currentTime);
+      if (activeClipsAtTime.length > 0 && !this.isPlaying) {
+        this.loadClipForPlayback(activeClipsAtTime[0]);
+      }
     } else {
       this.previewOverlay.classList.remove('hidden');
     }
@@ -304,13 +308,39 @@ class VideoPlayer {
 
   loadClipForPlayback(clip) {
     const clipLocalTime = this.currentTime - clip.startTime + clip.trimStart;
+    const targetTime = clamp(clipLocalTime, clip.trimStart, clip.trimEnd);
     
     if (this.videoElement.src !== clip.material.url) {
       this.videoElement.src = clip.material.url;
-    }
-    
-    if (Math.abs(this.videoElement.currentTime - clipLocalTime) > 0.1) {
-      this.videoElement.currentTime = clamp(clipLocalTime, clip.trimStart, clip.trimEnd);
+      this.videoElement.load();
+      
+      const onLoaded = () => {
+        try {
+          this.videoElement.currentTime = targetTime;
+        } catch (e) {
+          console.warn('Failed to set video time:', e);
+        }
+        this.renderFrame();
+        this.videoElement.removeEventListener('loadedmetadata', onLoaded);
+        this.videoElement.removeEventListener('canplay', onLoaded);
+      };
+      
+      this.videoElement.addEventListener('loadedmetadata', onLoaded);
+      this.videoElement.addEventListener('canplay', onLoaded);
+      
+      setTimeout(() => {
+        if (this.videoElement.readyState >= 1) {
+          onLoaded();
+        }
+      }, 200);
+    } else {
+      if (Math.abs(this.videoElement.currentTime - targetTime) > 0.1) {
+        try {
+          this.videoElement.currentTime = targetTime;
+        } catch (e) {
+          console.warn('Failed to set video time:', e);
+        }
+      }
     }
   }
 
@@ -517,7 +547,17 @@ class VideoPlayer {
   }
 
   renderClip(clip, width, height) {
-    if (!this.videoElement.readyState || this.videoElement.videoWidth === 0) {
+    if (this.videoElement.readyState < 2 || this.videoElement.videoWidth === 0) {
+      if (this.videoElement.readyState < 2) {
+        const retryRender = () => {
+          if (this.videoElement.readyState >= 2 && this.videoElement.videoWidth > 0) {
+            this.renderFrame();
+          } else if (this.videoElement.readyState < 2) {
+            setTimeout(retryRender, 50);
+          }
+        };
+        setTimeout(retryRender, 30);
+      }
       return;
     }
 

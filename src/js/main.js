@@ -332,14 +332,17 @@ class VideoEditorApp {
       }
     });
 
+    let lastZoomTime = 0;
     document.addEventListener('wheel', (e) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
-        if (e.deltaY < 0) {
-          timelineManager.zoomIn();
-        } else {
-          timelineManager.zoomOut();
-        }
+        const now = Date.now();
+        if (now - lastZoomTime < 50) return;
+        lastZoomTime = now;
+        
+        const delta = e.deltaY > 0 ? -15 : 15;
+        const newZoom = timelineManager.zoom + delta;
+        timelineManager.setZoom(newZoom);
       }
     }, { passive: false });
   }
