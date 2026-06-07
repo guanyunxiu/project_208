@@ -1,19 +1,65 @@
 import { EventBus, generateId, formatTime, clamp } from './utils.js';
 
+const TRACK_TYPES = {
+  video: {
+    name: '视频轨道',
+    icon: '🎬',
+    color: '#6366f1',
+    height: 60
+  },
+  audio: {
+    name: '音频轨道',
+    icon: '🎵',
+    color: '#8b5cf6',
+    height: 40
+  },
+  text: {
+    name: '文字轨道',
+    icon: '📝',
+    color: '#ec4899',
+    height: 50
+  },
+  sticker: {
+    name: '贴纸轨道',
+    icon: '🖼️',
+    color: '#f97316',
+    height: 50
+  }
+};
+
+class Track {
+  constructor(type, index) {
+    this.id = `track_${type}_${index}`;
+    this.type = type;
+    this.name = TRACK_TYPES[type].name + (index > 0 ? ` ${index + 1}` : '');
+    this.icon = TRACK_TYPES[type].icon;
+    this.color = TRACK_TYPES[type].color;
+    this.height = TRACK_TYPES[type].height;
+    this.locked = false;
+    this.hidden = false;
+    this.muted = false;
+    this.items = [];
+    this.zIndex = index;
+  }
+}
+
 class TimelineManager {
   constructor() {
+    this.tracks = [];
     this.clips = [];
     this.currentTime = 0;
-    this.totalDuration = 0;
-    this.selectedClipId = null;
+    this.totalDuration = 60;
+    this.selectedItemId = null;
+    this.selectedTrackId = null;
     this.isPlaying = false;
     this.zoom = 100;
     this.pixelsPerSecond = 50;
     this.scrollLeft = 0;
+    this.scrollTop = 0;
 
     this.timelineCanvas = document.getElementById('timeline-canvas');
     this.rulerCanvas = document.getElementById('ruler-canvas');
-    this.videoTrack = document.getElementById('video-track');
+    this.tracksContainer = document.getElementById('tracks-container');
     this.playhead = document.getElementById('playhead');
     this.timelineCtx = this.timelineCanvas.getContext('2d');
     this.rulerCtx = this.rulerCanvas.getContext('2d');
@@ -25,14 +71,17 @@ class TimelineManager {
 
     this.isDragging = false;
     this.dragType = null;
-    this.dragClipId = null;
+    this.dragItemId = null;
     this.dragStartX = 0;
+    this.dragStartY = 0;
     this.dragStartPos = 0;
+    this.dragStartTrack = null;
 
     this.init();
   }
 
   init() {
+    this.initializeTracks();
     this.setupCanvas();
     this.setupEventListeners();
     this.setupDragAndDrop();
@@ -47,17 +96,165 @@ class TimelineManager {
       this.updateCanvasSize();
       this.render();
     });
+
+    EventBus.on('text:added', (text) => this.addItemToTrack(text, 'text'));
+    EventBus.on('sticker:added', (sticker) => this.addItemToTrack(sticker, 'sticker'));
+    EventBus.on('text:deleted', (text) => this.removeItemFromTrack(text.id));
+    EventBus.on('sticker:deleted', (sticker) => this.removeItemFromTrack(sticker.id));
+    EventBus.on('text:updated', () => this.render());
+    EventBus.on('sticker:updated', () => this.render());
+
+    EventBus.on('track:add', (type) => this.addTrack(type));
+    EventBus.on('track:remove', (trackId) => this.removeTrack(trackId));
+    EventBus.on('track:toggle-lock', (trackId) => this.toggleTrackLock(trackId));
+    EventBus.on('track:toggle-hide', (trackId) => this.toggleTrackHide(trackId));
+    EventBus.on('track:toggle-mute', (trackId) => this.toggleTrackMute(trackId));
+    EventBus.on('track:move-up', (trackId) => this.moveTrackUp(trackId));
+    EventBus.on('track:move-down', (trackId) => this.moveTrackDown(trackId));
+  }
+
+  initializeTracks() {
+    this.tracks = [
+      new Track('video', 0),
+      new Track('video', 1),
+      new Track('audio', 0),
+      new Track('text', 0),
+      new Track('sticker', 0)
+    ];
+  }
+
+  addTrack(type) {
+    const existingCount = this.tracks.filter(t => t.type === type).length;
+    const newTrack = new Track(type, existingCount);
+    
+    const maxZIndex = Math.max(...this.tracks.map(t => t.zIndex));
+    newTrack.zIndex = maxZIndex + 1;
+    
+    this.tracks.push(newTrack);
+    this.tracks.sort((a, b) => a.zIndex - b.zIndex);
+    
+    this.updateCanvasSize();
+    this.render();
+    EventBus.emit('track:added', newTrack);
+    return newTrack;
+  }
+
+  removeTrack(trackId) {
+    const index = this.tracks.findIndex(t => t.id === trackId);
+    if (index === -1) return;
+    
+    const track = this.tracks[index];
+    
+    for (const item of track.items) {
+      if (item.type === 'clip') {
+        this.clips = this.clips.filter(c => c.id !== item.id);
+      } else if (item.type === 'text' && window.__textManager) {
+        window.__textManager.deleteText(item.id);
+      } else if (item.type === 'sticker' && window.__textManager) {
+        window.__textManager.deleteSticker(item.id);
+      }
+    }
+    
+    this.tracks.splice(index, 1);
+    this.updateCanvasSize();
+    this.render();
+    EventBus.emit('track:removed', track);
+  }
+
+  toggleTrackLock(trackId) {
+    const track = this.tracks.find(t => t.id === trackId);
+    if (track) {
+      track.locked = !track.locked;
+      this.render();
+      EventBus.emit('track:updated', track);
+    }
+  }
+
+  toggleTrackHide(trackId) {
+    const track = this.tracks.find(t => t.id === trackId);
+    if (track) {
+      track.hidden = !track.hidden;
+      this.render();
+      EventBus.emit('player:update');
+      EventBus.emit('track:updated', track);
+    }
+  }
+
+  toggleTrackMute(trackId) {
+    const track = this.tracks.find(t => t.id === trackId);
+    if (track) {
+      track.muted = !track.muted;
+      this.render();
+      EventBus.emit('player:update');
+      EventBus.emit('track:updated', track);
+    }
+  }
+
+  moveTrackUp(trackId) {
+    const index = this.tracks.findIndex(t => t.id === trackId);
+    if (index <= 0) return;
+    
+    [this.tracks[index], this.tracks[index - 1]] = [this.tracks[index - 1], this.tracks[index]];
+    
+    const tempZ = this.tracks[index].zIndex;
+    this.tracks[index].zIndex = this.tracks[index - 1].zIndex;
+    this.tracks[index - 1].zIndex = tempZ;
+    
+    this.tracks.sort((a, b) => a.zIndex - b.zIndex);
+    this.updateCanvasSize();
+    this.render();
+    EventBus.emit('track:reordered', this.tracks);
+  }
+
+  moveTrackDown(trackId) {
+    const index = this.tracks.findIndex(t => t.id === trackId);
+    if (index === -1 || index >= this.tracks.length - 1) return;
+    
+    [this.tracks[index], this.tracks[index + 1]] = [this.tracks[index + 1], this.tracks[index]];
+    
+    const tempZ = this.tracks[index].zIndex;
+    this.tracks[index].zIndex = this.tracks[index + 1].zIndex;
+    this.tracks[index + 1].zIndex = tempZ;
+    
+    this.tracks.sort((a, b) => a.zIndex - b.zIndex);
+    this.updateCanvasSize();
+    this.render();
+    EventBus.emit('track:reordered', this.tracks);
+  }
+
+  addItemToTrack(item, trackType) {
+    const track = this.tracks.find(t => t.type === trackType && !t.locked);
+    if (!track) {
+      const newTrack = this.addTrack(trackType);
+      newTrack.items.push(item);
+    } else {
+      track.items.push(item);
+    }
+    
+    item.trackId = track ? track.id : this.tracks[this.tracks.length - 1].id;
+    this.updateTotalDuration();
+    this.render();
+  }
+
+  removeItemFromTrack(itemId) {
+    for (const track of this.tracks) {
+      track.items = track.items.filter(item => item.id !== itemId);
+    }
+    this.clips = this.clips.filter(c => c.id !== itemId);
+    this.updateTotalDuration();
+    this.render();
   }
 
   setupCanvas() {
     const resizeCanvas = () => {
-      const trackRect = this.videoTrack.getBoundingClientRect();
+      const totalTrackHeight = this.tracks.reduce((sum, t) => sum + t.height + 10, 0) + 20;
+      const trackRect = this.tracksContainer.getBoundingClientRect();
       const trackContentWidth = Math.max(trackRect.width, this.totalDuration * this.pixelsPerSecond + 200);
       
       this.timelineCanvas.width = trackContentWidth * window.devicePixelRatio;
-      this.timelineCanvas.height = trackRect.height * window.devicePixelRatio;
+      this.timelineCanvas.height = totalTrackHeight * window.devicePixelRatio;
       this.timelineCanvas.style.width = trackContentWidth + 'px';
-      this.timelineCanvas.style.height = trackRect.height + 'px';
+      this.timelineCanvas.style.height = totalTrackHeight + 'px';
       this.timelineCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
       const rulerRect = this.rulerCanvas.parentElement.getBoundingClientRect();
@@ -71,8 +268,9 @@ class TimelineManager {
     };
 
     window.addEventListener('resize', resizeCanvas);
-    this.videoTrack.addEventListener('scroll', () => {
-      this.scrollLeft = this.videoTrack.scrollLeft;
+    this.tracksContainer.addEventListener('scroll', () => {
+      this.scrollLeft = this.tracksContainer.scrollLeft;
+      this.scrollTop = this.tracksContainer.scrollTop;
       this.render();
     });
 
@@ -80,13 +278,14 @@ class TimelineManager {
   }
 
   updateCanvasSize() {
-    const trackRect = this.videoTrack.getBoundingClientRect();
+    const totalTrackHeight = this.tracks.reduce((sum, t) => sum + t.height + 10, 0) + 20;
+    const trackRect = this.tracksContainer.getBoundingClientRect();
     const trackContentWidth = Math.max(trackRect.width, this.totalDuration * this.pixelsPerSecond + 200);
     
     this.timelineCanvas.width = trackContentWidth * window.devicePixelRatio;
-    this.timelineCanvas.height = trackRect.height * window.devicePixelRatio;
+    this.timelineCanvas.height = totalTrackHeight * window.devicePixelRatio;
     this.timelineCanvas.style.width = trackContentWidth + 'px';
-    this.timelineCanvas.style.height = trackRect.height + 'px';
+    this.timelineCanvas.style.height = totalTrackHeight + 'px';
     this.timelineCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
   }
 
@@ -103,9 +302,9 @@ class TimelineManager {
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (this.selectedClipId && document.activeElement.tagName !== 'INPUT') {
+        if (this.selectedItemId && document.activeElement.tagName !== 'INPUT') {
           e.preventDefault();
-          this.deleteClip(this.selectedClipId);
+          this.deleteItem(this.selectedItemId);
         }
       }
       if (e.key === 's' && e.ctrlKey) {
@@ -116,27 +315,37 @@ class TimelineManager {
   }
 
   setupDragAndDrop() {
-    this.videoTrack.addEventListener('dragover', (e) => {
+    this.tracksContainer.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
-      this.videoTrack.classList.add('drag-over');
+      this.tracksContainer.classList.add('drag-over');
     });
 
-    this.videoTrack.addEventListener('dragleave', () => {
-      this.videoTrack.classList.remove('drag-over');
+    this.tracksContainer.addEventListener('dragleave', () => {
+      this.tracksContainer.classList.remove('drag-over');
     });
 
-    this.videoTrack.addEventListener('drop', (e) => {
+    this.tracksContainer.addEventListener('drop', (e) => {
       e.preventDefault();
-      this.videoTrack.classList.remove('drag-over');
+      this.tracksContainer.classList.remove('drag-over');
 
       try {
         const data = JSON.parse(e.dataTransfer.getData('application/json'));
         if (data.type === 'material') {
-          const rect = this.videoTrack.getBoundingClientRect();
+          const rect = this.tracksContainer.getBoundingClientRect();
           const x = e.clientX - rect.left + this.scrollLeft;
+          const y = e.clientY - rect.top + this.scrollTop;
           const startTime = Math.max(0, x / this.pixelsPerSecond);
-          this.addClip(data.materialId, startTime);
+          
+          const track = this.getTrackAtY(y);
+          if (track && track.type === 'video' && !track.locked) {
+            this.addClip(data.materialId, startTime, track.id);
+          } else {
+            const videoTrack = this.tracks.find(t => t.type === 'video' && !t.locked);
+            if (videoTrack) {
+              this.addClip(data.materialId, startTime, videoTrack.id);
+            }
+          }
         }
       } catch (err) {
         console.error('Drop error:', err);
@@ -144,32 +353,51 @@ class TimelineManager {
     });
   }
 
-  addClip(materialId, startTime = 0) {
-    const material = EventBus.events['material:get'] ? 
-      EventBus.emit('material:get', materialId) : null;
-    
-    const materialsList = document.querySelectorAll('.material-item');
-    let mat = null;
-    for (const item of materialsList) {
-      if (item.dataset.id === materialId) {
-        mat = window.__materialManager?.getMaterialById(materialId);
-        break;
+  getTrackAtY(y) {
+    let currentY = 10;
+    for (const track of this.tracks) {
+      if (y >= currentY && y < currentY + track.height) {
+        return track;
       }
+      currentY += track.height + 10;
     }
+    return null;
+  }
 
-    if (!mat && window.__materialManager) {
-      mat = window.__materialManager.getMaterialById(materialId);
+  getTrackY(trackId) {
+    let y = 10;
+    for (const track of this.tracks) {
+      if (track.id === trackId) return y;
+      y += track.height + 10;
     }
+    return y;
+  }
 
+  addClip(materialId, startTime = 0, trackId = null) {
+    const mat = window.__materialManager?.getMaterialById(materialId);
     if (!mat) {
       console.error('Material not found:', materialId);
       return null;
     }
 
-    const adjustedStart = this.findInsertPosition(startTime, mat.duration);
+    let targetTrack = trackId ? this.tracks.find(t => t.id === trackId) : null;
+    if (!targetTrack) {
+      targetTrack = this.tracks.find(t => t.type === 'video' && !t.locked);
+      if (!targetTrack) {
+        targetTrack = this.addTrack('video');
+      }
+    }
+
+    if (targetTrack.locked) {
+      console.warn('Track is locked');
+      return null;
+    }
+
+    const adjustedStart = this.findInsertPosition(startTime, mat.duration, targetTrack);
 
     const clip = {
       id: generateId(),
+      type: 'clip',
       materialId: materialId,
       material: mat,
       startTime: adjustedStart,
@@ -182,12 +410,18 @@ class TimelineManager {
       aspectRatio: 'original',
       fadeIn: 0,
       fadeOut: 0,
+      filter: 'none',
+      colorAdjust: { brightness: 0, contrast: 0, saturation: 0, temperature: 0 },
+      transitionIn: null,
+      trackId: targetTrack.id,
+      zIndex: targetTrack.items.length,
       color: this.getClipColor(this.clips.length)
     };
 
     this.clips.push(clip);
+    targetTrack.items.push(clip);
     this.updateTotalDuration();
-    this.selectedClipId = clip.id;
+    this.selectedItemId = clip.id;
     
     EventBus.emit('clip:added', clip);
     EventBus.emit('clip:selected', clip);
@@ -196,16 +430,16 @@ class TimelineManager {
     return clip;
   }
 
-  findInsertPosition(startTime, duration) {
+  findInsertPosition(startTime, duration, track) {
     let pos = startTime;
-    const sortedClips = [...this.clips].sort((a, b) => a.startTime - b.startTime);
+    const sortedItems = [...track.items].sort((a, b) => a.startTime - b.startTime);
     
-    for (const clip of sortedClips) {
-      if (pos + duration <= clip.startTime) {
+    for (const item of sortedItems) {
+      if (pos + duration <= item.startTime) {
         break;
       }
-      if (pos < clip.endTime) {
-        pos = clip.endTime;
+      if (pos < item.endTime) {
+        pos = item.endTime;
       }
     }
     
@@ -221,6 +455,30 @@ class TimelineManager {
     return colors[index % colors.length];
   }
 
+  deleteItem(itemId) {
+    const clip = this.clips.find(c => c.id === itemId);
+    if (clip) {
+      this.deleteClip(itemId);
+      return;
+    }
+
+    if (window.__textManager) {
+      const text = window.__textManager.getTextById?.(itemId);
+      if (text) {
+        window.__textManager.deleteText(itemId);
+        return;
+      }
+      
+      const sticker = window.__textManager.getStickerById?.(itemId);
+      if (sticker) {
+        window.__textManager.deleteSticker(itemId);
+        return;
+      }
+    }
+
+    this.removeItemFromTrack(itemId);
+  }
+
   deleteClip(clipId) {
     const index = this.clips.findIndex(c => c.id === clipId);
     if (index === -1) return;
@@ -228,8 +486,12 @@ class TimelineManager {
     const clip = this.clips[index];
     this.clips.splice(index, 1);
 
-    if (this.selectedClipId === clipId) {
-      this.selectedClipId = null;
+    for (const track of this.tracks) {
+      track.items = track.items.filter(item => item.id !== clipId);
+    }
+
+    if (this.selectedItemId === clipId) {
+      this.selectedItemId = null;
       EventBus.emit('clip:selected', null);
     }
 
@@ -253,13 +515,20 @@ class TimelineManager {
       id: generateId(),
       startTime: splitTime,
       trimStart: clipLocalTime,
-      color: this.getClipColor(this.clips.length)
+      color: this.getClipColor(this.clips.length),
+      transitionIn: null
     };
 
     clip.endTime = splitTime;
     clip.trimEnd = clipLocalTime;
 
     this.clips.push(newClip);
+    
+    const track = this.tracks.find(t => t.id === clip.trackId);
+    if (track) {
+      track.items.push(newClip);
+    }
+
     this.clips.sort((a, b) => a.startTime - b.startTime);
     
     EventBus.emit('clip:updated', clip);
@@ -299,22 +568,38 @@ class TimelineManager {
     return clip;
   }
 
-  moveClip(clipId, newStartTime) {
-    const clip = this.clips.find(c => c.id === clipId);
-    if (!clip) return null;
+  moveItem(itemId, newStartTime, newTrackId = null) {
+    const clip = this.clips.find(c => c.id === itemId);
+    const item = clip || (window.__textManager?.getItemById?.(itemId));
+    
+    if (!item) return null;
 
-    const duration = clip.endTime - clip.startTime;
+    const track = this.tracks.find(t => t.id === (newTrackId || item.trackId));
+    if (!track || track.locked) return null;
+
+    const duration = item.endTime - item.startTime;
     const clampedStart = clamp(newStartTime, 0, this.totalDuration - duration);
 
-    clip.startTime = clampedStart;
-    clip.endTime = clampedStart + duration;
-
-    this.clips.sort((a, b) => a.startTime - b.startTime);
+    item.startTime = clampedStart;
+    item.endTime = clampedStart + duration;
     
-    EventBus.emit('clip:updated', clip);
+    if (newTrackId && newTrackId !== item.trackId) {
+      const oldTrack = this.tracks.find(t => t.id === item.trackId);
+      if (oldTrack) {
+        oldTrack.items = oldTrack.items.filter(i => i.id !== itemId);
+      }
+      item.trackId = newTrackId;
+      track.items.push(item);
+    }
+
+    if (clip) {
+      this.clips.sort((a, b) => a.startTime - b.startTime);
+    }
+
+    EventBus.emit(clip ? 'clip:updated' : 'timeline:item-updated', item);
     this.render();
 
-    return clip;
+    return item;
   }
 
   updateClipProperty(clipId, property, value) {
@@ -324,48 +609,90 @@ class TimelineManager {
     clip[property] = value;
     EventBus.emit('clip:updated', clip);
     
-    if (this.selectedClipId === clipId) {
+    if (this.selectedItemId === clipId) {
       EventBus.emit('clip:selected', clip);
     }
 
+    this.render();
     return clip;
   }
 
-  selectClip(clipId) {
-    this.selectedClipId = clipId;
-    const clip = this.clips.find(c => c.id === clipId);
-    EventBus.emit('clip:selected', clip);
+  updateItemProperty(itemId, property, value) {
+    const clip = this.clips.find(c => c.id === itemId);
+    if (clip) {
+      return this.updateClipProperty(itemId, property, value);
+    }
+
+    if (window.__textManager) {
+      const text = window.__textManager.getTextById?.(itemId);
+      if (text) {
+        window.__textManager.updateText(itemId, { [property]: value });
+        return text;
+      }
+      
+      const sticker = window.__textManager.getStickerById?.(itemId);
+      if (sticker) {
+        window.__textManager.updateSticker(itemId, { [property]: value });
+        return sticker;
+      }
+    }
+
+    return null;
+  }
+
+  selectItem(itemId) {
+    this.selectedItemId = itemId;
+    
+    const clip = this.clips.find(c => c.id === itemId);
+    if (clip) {
+      EventBus.emit('clip:selected', clip);
+    } else if (window.__textManager) {
+      const item = window.__textManager.getItemById?.(itemId);
+      if (item) {
+        EventBus.emit('item:selected', item);
+      }
+    }
+    
     this.render();
   }
 
-  getClipAtPosition(x) {
+  getItemAtPosition(x, y) {
     const time = x / this.pixelsPerSecond;
-    for (const clip of this.clips) {
-      if (time >= clip.startTime && time <= clip.endTime) {
-        return clip;
+    const track = this.getTrackAtY(y);
+    if (!track) return null;
+
+    for (const item of track.items) {
+      if (time >= item.startTime && time <= item.endTime) {
+        return { item, track };
       }
     }
     return null;
   }
 
-  getClipAtMouse(e) {
+  getItemAtMouse(e) {
     const rect = this.timelineCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = e.clientX - rect.left + this.scrollLeft;
+    const y = e.clientY - rect.top + this.scrollTop;
 
-    for (const clip of this.clips) {
-      const clipX = clip.startTime * this.pixelsPerSecond;
-      const clipWidth = (clip.endTime - clip.startTime) * this.pixelsPerSecond;
-      const clipHeight = rect.height - 20;
-      const clipY = 10;
+    for (const track of this.tracks) {
+      const trackY = this.getTrackY(track.id);
+      const trackHeight = track.height;
 
-      if (x >= clipX && x <= clipX + clipWidth && y >= clipY && y <= clipY + clipHeight) {
-        if (x <= clipX + 8) {
-          return { clip, handle: 'left' };
-        } else if (x >= clipX + clipWidth - 8) {
-          return { clip, handle: 'right' };
-        } else {
-          return { clip, handle: 'move' };
+      for (const item of track.items) {
+        const itemX = item.startTime * this.pixelsPerSecond;
+        const itemWidth = (item.endTime - item.startTime) * this.pixelsPerSecond;
+        const itemY = trackY;
+        const itemHeight = trackHeight - 20;
+
+        if (x >= itemX && x <= itemX + itemWidth && 
+            y >= itemY && y <= itemY + itemHeight + 20) {
+          if (x <= itemX + 8) {
+            return { item, track, handle: 'left' };
+          } else if (x >= itemX + itemWidth - 8) {
+            return { item, track, handle: 'right' };
+          } else {
+            return { item, track, handle: 'move' };
+          }
         }
       }
     }
@@ -375,15 +702,18 @@ class TimelineManager {
   handleMouseDown(e) {
     const rect = this.timelineCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left + this.scrollLeft;
-    const hit = this.getClipAtMouse(e);
+    const y = e.clientY - rect.top + this.scrollTop;
+    const hit = this.getItemAtMouse(e);
 
-    if (hit) {
+    if (hit && !hit.track.locked) {
       this.isDragging = true;
       this.dragType = hit.handle;
-      this.dragClipId = hit.clip.id;
+      this.dragItemId = hit.item.id;
       this.dragStartX = x;
-      this.dragStartPos = hit.clip.startTime;
-      this.selectClip(hit.clip.id);
+      this.dragStartY = y;
+      this.dragStartPos = hit.item.startTime;
+      this.dragStartTrack = hit.track.id;
+      this.selectItem(hit.item.id);
     } else {
       const time = x / this.pixelsPerSecond;
       this.seekTo(time);
@@ -395,35 +725,43 @@ class TimelineManager {
 
     const rect = this.timelineCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left + this.scrollLeft;
+    const y = e.clientY - rect.top + this.scrollTop;
     const deltaX = x - this.dragStartX;
     const deltaTime = deltaX / this.pixelsPerSecond;
 
-    const clip = this.clips.find(c => c.id === this.dragClipId);
-    if (!clip) return;
+    const clip = this.clips.find(c => c.id === this.dragItemId);
+    const item = clip || (window.__textManager?.getItemById?.(this.dragItemId));
+    if (!item) return;
+
+    const newTrack = this.getTrackAtY(y);
+    const newTrackId = newTrack && !newTrack.locked && newTrack.type === (clip ? 'video' : item.type) 
+      ? newTrack.id 
+      : this.dragStartTrack;
 
     if (this.dragType === 'move') {
       const newStart = clamp(this.dragStartPos + deltaTime, 0, 
-        this.totalDuration - (clip.endTime - clip.startTime));
-      this.moveClip(this.dragClipId, newStart);
-    } else if (this.dragType === 'left') {
+        this.totalDuration - (item.endTime - item.startTime));
+      this.moveItem(this.dragItemId, newStart, newTrackId);
+    } else if (this.dragType === 'left' && clip) {
       const newTrimStart = clamp(clip.trimStart + deltaTime, 0, clip.trimEnd - 0.1);
-      this.trimClip(this.dragClipId, newTrimStart, clip.trimEnd);
-    } else if (this.dragType === 'right') {
+      this.trimClip(this.dragItemId, newTrimStart, clip.trimEnd);
+    } else if (this.dragType === 'right' && clip) {
       const newTrimEnd = clamp(clip.trimEnd + deltaTime, clip.trimStart + 0.1, clip.material.duration);
-      this.trimClip(this.dragClipId, clip.trimStart, newTrimEnd);
+      this.trimClip(this.dragItemId, clip.trimStart, newTrimEnd);
     }
   }
 
   handleMouseUp() {
     this.isDragging = false;
     this.dragType = null;
-    this.dragClipId = null;
+    this.dragItemId = null;
+    this.dragStartTrack = null;
   }
 
   handleDoubleClick(e) {
-    const hit = this.getClipAtMouse(e);
-    if (hit) {
-      EventBus.emit('clip:preview', hit.clip);
+    const hit = this.getItemAtMouse(e);
+    if (hit && hit.item.type === 'clip') {
+      EventBus.emit('clip:preview', hit.item);
     }
   }
 
@@ -438,18 +776,29 @@ class TimelineManager {
     const playheadX = 120 + time * this.pixelsPerSecond - this.scrollLeft;
     this.playhead.style.transform = `translateX(${playheadX}px)`;
 
-    const totalWidth = this.videoTrack.clientWidth;
+    const totalWidth = this.tracksContainer.clientWidth;
     if (playheadX > totalWidth - 50) {
-      this.videoTrack.scrollLeft = Math.max(0, time * this.pixelsPerSecond - totalWidth + 100);
+      this.tracksContainer.scrollLeft = Math.max(0, time * this.pixelsPerSecond - totalWidth + 100);
     }
   }
 
   updateTotalDuration() {
-    if (this.clips.length === 0) {
-      this.totalDuration = 60;
-    } else {
-      this.totalDuration = Math.max(1, ...this.clips.map(c => c.endTime));
+    let maxEnd = 0;
+    
+    for (const clip of this.clips) {
+      maxEnd = Math.max(maxEnd, clip.endTime);
     }
+    
+    if (window.__textManager) {
+      for (const text of window.__textManager.getTexts()) {
+        maxEnd = Math.max(maxEnd, text.endTime);
+      }
+      for (const sticker of window.__textManager.getStickers()) {
+        maxEnd = Math.max(maxEnd, sticker.endTime);
+      }
+    }
+
+    this.totalDuration = Math.max(60, maxEnd);
     EventBus.emit('timeline:duration', this.totalDuration);
   }
 
@@ -470,12 +819,9 @@ class TimelineManager {
   }
 
   fitToView() {
-    if (this.clips.length === 0) {
-      this.setZoom(100);
-      return;
-    }
-    const maxEnd = Math.max(...this.clips.map(c => c.endTime));
-    const trackWidth = this.videoTrack.clientWidth - 40;
+    this.updateTotalDuration();
+    const maxEnd = this.totalDuration;
+    const trackWidth = this.tracksContainer.clientWidth - 140;
     const newZoom = Math.max(20, Math.min(300, (trackWidth / maxEnd / 50) * 100));
     this.setZoom(newZoom);
   }
@@ -483,6 +829,7 @@ class TimelineManager {
   render() {
     this.renderRuler();
     this.renderTimeline();
+    this.renderTrackHeaders();
   }
 
   renderRuler() {
@@ -539,7 +886,8 @@ class TimelineManager {
     this.timelineCtx.clearRect(0, 0, width, height);
 
     this.renderGrid(width, height);
-    this.renderClips(width, height);
+    this.renderTracks(width, height);
+    this.renderItems(width, height);
   }
 
   renderGrid(width, height) {
@@ -559,91 +907,190 @@ class TimelineManager {
     }
   }
 
-  renderClips(width, height) {
-    const trackY = 10;
-    const trackHeight = height - 20;
+  renderTracks(width, height) {
+    let y = 10;
+    
+    for (const track of this.tracks) {
+      this.timelineCtx.fillStyle = track.hidden ? 'rgba(30, 41, 59, 0.5)' : '#1e293b';
+      this.timelineCtx.fillRect(0, y, width, track.height);
+      
+      this.timelineCtx.strokeStyle = track.locked ? '#ef4444' : '#334155';
+      this.timelineCtx.lineWidth = 1;
+      this.timelineCtx.strokeRect(0, y, width, track.height);
+      
+      y += track.height + 10;
+    }
+  }
+
+  renderTrackHeaders() {
+    const headersContainer = document.getElementById('track-headers');
+    if (!headersContainer) return;
+
+    headersContainer.innerHTML = '';
+    
+    for (const track of this.tracks) {
+      const header = document.createElement('div');
+      header.className = 'track-header-item';
+      header.style.height = track.height + 'px';
+      header.style.backgroundColor = track.color + '20';
+      header.style.borderLeft = `3px solid ${track.color}`;
+      
+      header.innerHTML = `
+        <div class="track-header-content">
+          <span class="track-icon">${track.icon}</span>
+          <span class="track-name">${track.name}</span>
+        </div>
+        <div class="track-controls">
+          <button class="track-btn ${track.locked ? 'active' : ''}" 
+                  title="${track.locked ? '解锁' : '锁定'}"
+                  onclick="EventBus.emit('track:toggle-lock', '${track.id}')">
+            ${track.locked ? '🔒' : '🔓'}
+          </button>
+          <button class="track-btn ${track.hidden ? 'active' : ''}" 
+                  title="${track.hidden ? '显示' : '隐藏'}"
+                  onclick="EventBus.emit('track:toggle-hide', '${track.id}')">
+            ${track.hidden ? '👁️‍🗨️' : '👁️'}
+          </button>
+          ${track.type === 'audio' || track.type === 'video' ? `
+            <button class="track-btn ${track.muted ? 'active' : ''}" 
+                    title="${track.muted ? '取消静音' : '静音'}"
+                    onclick="EventBus.emit('track:toggle-mute', '${track.id}')">
+              ${track.muted ? '🔇' : '🔊'}
+            </button>
+          ` : ''}
+          <button class="track-btn" title="上移"
+                  onclick="EventBus.emit('track:move-up', '${track.id}')">
+            ⬆️
+          </button>
+          <button class="track-btn" title="下移"
+                  onclick="EventBus.emit('track:move-down', '${track.id}')">
+            ⬇️
+          </button>
+          ${this.tracks.filter(t => t.type === track.type).length > 1 ? `
+            <button class="track-btn danger" title="删除轨道"
+                    onclick="EventBus.emit('track:remove', '${track.id}')">
+              🗑️
+            </button>
+          ` : ''}
+        </div>
+      `;
+      
+      headersContainer.appendChild(header);
+    }
+
+    const addTrackBtn = document.createElement('div');
+    addTrackBtn.className = 'add-track-btn';
+    addTrackBtn.innerHTML = `
+      <button class="btn-small" onclick="EventBus.emit('track:add', 'video')">+ 视频</button>
+      <button class="btn-small" onclick="EventBus.emit('track:add', 'audio')">+ 音频</button>
+      <button class="btn-small" onclick="EventBus.emit('track:add', 'text')">+ 文字</button>
+      <button class="btn-small" onclick="EventBus.emit('track:add', 'sticker')">+ 贴纸</button>
+    `;
+    headersContainer.appendChild(addTrackBtn);
+  }
+
+  renderItems(width, height) {
     const cornerRadius = 6;
 
-    for (const clip of this.clips) {
-      const x = clip.startTime * this.pixelsPerSecond;
-      const clipWidth = (clip.endTime - clip.startTime) * this.pixelsPerSecond;
+    for (const track of this.tracks) {
+      if (track.hidden) continue;
 
-      if (x + clipWidth < this.scrollLeft - 100 || x > this.scrollLeft + width + 100) {
-        continue;
-      }
+      const trackY = this.getTrackY(track.id);
+      const trackHeight = track.height - 20;
 
-      const isSelected = clip.id === this.selectedClipId;
+      for (const item of track.items) {
+        const x = item.startTime * this.pixelsPerSecond;
+        const itemWidth = (item.endTime - item.startTime) * this.pixelsPerSecond;
 
-      const gradient = this.timelineCtx.createLinearGradient(x, trackY, x, trackY + trackHeight);
-      gradient.addColorStop(0, clip.color);
-      gradient.addColorStop(1, this.darkenColor(clip.color, 30));
-
-      this.timelineCtx.fillStyle = gradient;
-      this.timelineCtx.beginPath();
-      this.roundRect(x, trackY, clipWidth, trackHeight, cornerRadius);
-      this.timelineCtx.fill();
-
-      if (isSelected) {
-        this.timelineCtx.strokeStyle = '#ffffff';
-        this.timelineCtx.lineWidth = 2;
-        this.timelineCtx.stroke();
-      }
-
-      if (clip.trimStart > 0 || clip.trimEnd < clip.material.duration) {
-        this.timelineCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        if (clip.trimStart > 0) {
-          const trimWidth = (clip.trimStart / clip.material.duration) * clipWidth;
-          this.timelineCtx.fillRect(x, trackY, trimWidth, trackHeight);
+        if (x + itemWidth < this.scrollLeft - 100 || x > this.scrollLeft + width + 100) {
+          continue;
         }
-        if (clip.trimEnd < clip.material.duration) {
-          const trimX = x + (clip.trimEnd / clip.material.duration) * clipWidth;
-          const trimWidth = clipWidth - (trimX - x);
-          this.timelineCtx.fillRect(trimX, trackY, trimWidth, trackHeight);
+
+        const isSelected = item.id === this.selectedItemId;
+        const color = item.color || track.color;
+
+        const gradient = this.timelineCtx.createLinearGradient(x, trackY, x, trackY + trackHeight);
+        gradient.addColorStop(0, color);
+        gradient.addColorStop(1, this.darkenColor(color, 30));
+
+        this.timelineCtx.fillStyle = gradient;
+        this.timelineCtx.beginPath();
+        this.roundRect(x, trackY, itemWidth, trackHeight, cornerRadius);
+        this.timelineCtx.fill();
+
+        if (isSelected) {
+          this.timelineCtx.strokeStyle = '#ffffff';
+          this.timelineCtx.lineWidth = 2;
+          this.timelineCtx.stroke();
         }
-      }
 
-      if (clip.fadeIn > 0) {
-        const fadeWidth = (clip.fadeIn / (clip.endTime - clip.startTime)) * clipWidth;
-        const fadeGradient = this.timelineCtx.createLinearGradient(x, 0, x + fadeWidth, 0);
-        fadeGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
-        fadeGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        this.timelineCtx.fillStyle = fadeGradient;
-        this.timelineCtx.fillRect(x, trackY, fadeWidth, trackHeight);
-      }
+        if (item.type === 'clip' && (item.trimStart > 0 || item.trimEnd < item.material.duration)) {
+          this.timelineCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+          if (item.trimStart > 0) {
+            const trimWidth = (item.trimStart / item.material.duration) * itemWidth;
+            this.timelineCtx.fillRect(x, trackY, trimWidth, trackHeight);
+          }
+          if (item.trimEnd < item.material.duration) {
+            const trimX = x + (item.trimEnd / item.material.duration) * itemWidth;
+            const trimWidth = itemWidth - (trimX - x);
+            this.timelineCtx.fillRect(trimX, trackY, trimWidth, trackHeight);
+          }
+        }
 
-      if (clip.fadeOut > 0) {
-        const fadeWidth = (clip.fadeOut / (clip.endTime - clip.startTime)) * clipWidth;
-        const fadeX = x + clipWidth - fadeWidth;
-        const fadeGradient = this.timelineCtx.createLinearGradient(fadeX, 0, fadeX + fadeWidth, 0);
-        fadeGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        fadeGradient.addColorStop(1, 'rgba(255, 255, 255, 0.6)');
-        this.timelineCtx.fillStyle = fadeGradient;
-        this.timelineCtx.fillRect(fadeX, trackY, fadeWidth, trackHeight);
-      }
+        if (item.fadeIn > 0) {
+          const fadeWidth = (item.fadeIn / (item.endTime - item.startTime)) * itemWidth;
+          const fadeGradient = this.timelineCtx.createLinearGradient(x, 0, x + fadeWidth, 0);
+          fadeGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+          fadeGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          this.timelineCtx.fillStyle = fadeGradient;
+          this.timelineCtx.fillRect(x, trackY, fadeWidth, trackHeight);
+        }
 
-      if (clipWidth > 60) {
-        this.timelineCtx.fillStyle = '#ffffff';
-        this.timelineCtx.font = '12px -apple-system, sans-serif';
-        this.timelineCtx.textAlign = 'left';
-        this.timelineCtx.textBaseline = 'top';
-        
-        const displayName = clip.material.name.length > 20 ? 
-          clip.material.name.substring(0, 17) + '...' : clip.material.name;
-        this.timelineCtx.fillText(displayName, x + 10, trackY + 8);
+        if (item.fadeOut > 0) {
+          const fadeWidth = (item.fadeOut / (item.endTime - item.startTime)) * itemWidth;
+          const fadeX = x + itemWidth - fadeWidth;
+          const fadeGradient = this.timelineCtx.createLinearGradient(fadeX, 0, fadeX + fadeWidth, 0);
+          fadeGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+          fadeGradient.addColorStop(1, 'rgba(255, 255, 255, 0.6)');
+          this.timelineCtx.fillStyle = fadeGradient;
+          this.timelineCtx.fillRect(fadeX, trackY, fadeWidth, trackHeight);
+        }
 
-        this.timelineCtx.font = '10px monospace';
-        this.timelineCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        this.timelineCtx.fillText(
-          formatTime(clip.endTime - clip.startTime),
-          x + 10, 
-          trackY + trackHeight - 20
-        );
-      }
+        if (itemWidth > 60) {
+          this.timelineCtx.fillStyle = '#ffffff';
+          this.timelineCtx.font = '12px -apple-system, sans-serif';
+          this.timelineCtx.textAlign = 'left';
+          this.timelineCtx.textBaseline = 'top';
+          
+          const displayName = (item.type === 'clip' ? item.material.name : item.content || item.name);
+          const truncatedName = displayName.length > 20 ? 
+            displayName.substring(0, 17) + '...' : displayName;
+          this.timelineCtx.fillText(truncatedName, x + 10, trackY + 8);
 
-      if (clipWidth > 20) {
-        this.timelineCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        this.timelineCtx.fillRect(x, trackY + trackHeight / 2 - 4, 4, 8);
-        this.timelineCtx.fillRect(x + clipWidth - 4, trackY + trackHeight / 2 - 4, 4, 8);
+          this.timelineCtx.font = '10px monospace';
+          this.timelineCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          this.timelineCtx.fillText(
+            formatTime(item.endTime - item.startTime),
+            x + 10, 
+            trackY + trackHeight - 20
+          );
+        }
+
+        if (itemWidth > 20) {
+          this.timelineCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          this.timelineCtx.fillRect(x, trackY + trackHeight / 2 - 4, 4, 8);
+          this.timelineCtx.fillRect(x + itemWidth - 4, trackY + trackHeight / 2 - 4, 4, 8);
+        }
+
+        if (item.transitionIn) {
+          this.timelineCtx.fillStyle = 'rgba(59, 130, 246, 0.8)';
+          this.timelineCtx.beginPath();
+          this.timelineCtx.moveTo(x, trackY + trackHeight / 2);
+          this.timelineCtx.lineTo(x + 12, trackY + 5);
+          this.timelineCtx.lineTo(x + 12, trackY + trackHeight - 5);
+          this.timelineCtx.closePath();
+          this.timelineCtx.fill();
+        }
       }
     }
   }
@@ -671,15 +1118,44 @@ class TimelineManager {
   }
 
   getCurrentClip() {
-    return this.clips.find(c => c.id === this.selectedClipId);
+    return this.clips.find(c => c.id === this.selectedItemId);
   }
 
   getClips() {
     return [...this.clips];
   }
 
+  getVisibleClips() {
+    return this.clips.filter(c => {
+      const track = this.tracks.find(t => t.id === c.trackId);
+      return track && !track.hidden;
+    }).sort((a, b) => {
+      const trackA = this.tracks.find(t => t.id === a.trackId);
+      const trackB = this.tracks.find(t => t.id === b.trackId);
+      return (trackB?.zIndex || 0) - (trackA?.zIndex || 0);
+    });
+  }
+
+  getTracks() {
+    return [...this.tracks];
+  }
+
   getTotalDuration() {
     return this.totalDuration;
+  }
+
+  getAllItems() {
+    const items = [];
+    for (const track of this.tracks) {
+      items.push(...track.items);
+    }
+    return items;
+  }
+
+  getActiveClipsAtTime(time) {
+    return this.getVisibleClips().filter(clip => 
+      time >= clip.startTime && time < clip.endTime
+    );
   }
 }
 

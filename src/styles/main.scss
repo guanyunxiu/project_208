@@ -7,6 +7,8 @@
 @import 'properties';
 @import 'timeline';
 @import 'modal';
+@import 'filters';
+@import 'transitions';
 
 .drag-over {
   border: 2px dashed $primary-color !important;

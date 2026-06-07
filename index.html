@@ -23,6 +23,8 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="btn-add-text" class="action-btn secondary" title="添加文字">📝 文字</button>
+        <button id="btn-add-sticker" class="action-btn secondary" title="添加贴纸">🖼️ 贴纸</button>
         <button id="btn-save" class="action-btn secondary" title="保存项目">💾 保存</button>
         <button id="btn-export" class="action-btn primary" title="导出视频">📤 导出</button>
       </div>
@@ -30,17 +32,72 @@
 
     <main class="main-content">
       <aside class="panel panel-left" id="materials-panel">
-        <div class="panel-header">
-          <h2>📁 素材库</h2>
-          <button id="btn-import" class="btn-small primary">+ 导入</button>
+        <div class="panel-tabs">
+          <button class="tab-btn active" data-tab="materials">📁 素材</button>
+          <button class="tab-btn" data-tab="filters">🎨 滤镜</button>
+          <button class="tab-btn" data-tab="transitions">✨ 转场</button>
         </div>
+
         <div class="panel-content">
-          <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm" multiple hidden>
-          <div id="materials-list" class="materials-list"></div>
-          <div id="empty-state" class="empty-state">
-            <div class="empty-icon">🎞️</div>
-            <p>点击上方「+ 导入」按钮</p>
-            <p class="sub">支持 MP4 / MOV / WEBM 格式</p>
+          <div class="tab-content active" id="tab-materials">
+            <div class="panel-header">
+              <h2>素材库</h2>
+              <button id="btn-import" class="btn-small primary">+ 导入</button>
+            </div>
+            <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,image/*" multiple hidden>
+            <div id="materials-list" class="materials-list"></div>
+            <div id="empty-state" class="empty-state">
+              <div class="empty-icon">🎞️</div>
+              <p>点击上方「+ 导入」按钮</p>
+              <p class="sub">支持视频和图片格式</p>
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-filters">
+            <div class="panel-header">
+              <h2>滤镜效果</h2>
+              <button id="btn-reset-filter" class="btn-small">重置</button>
+            </div>
+            <div class="filters-grid" id="filters-grid"></div>
+            
+            <div class="color-adjustment">
+              <h3>手动调色</h3>
+              <div class="adjustment-row">
+                <label>亮度</label>
+                <input type="range" id="adj-brightness" min="-100" max="100" value="0" class="slider">
+                <span id="brightness-value">0</span>
+              </div>
+              <div class="adjustment-row">
+                <label>对比度</label>
+                <input type="range" id="adj-contrast" min="-100" max="100" value="0" class="slider">
+                <span id="contrast-value">0</span>
+              </div>
+              <div class="adjustment-row">
+                <label>饱和度</label>
+                <input type="range" id="adj-saturation" min="-100" max="100" value="0" class="slider">
+                <span id="saturation-value">0</span>
+              </div>
+              <div class="adjustment-row">
+                <label>色温</label>
+                <input type="range" id="adj-temperature" min="-100" max="100" value="0" class="slider">
+                <span id="temperature-value">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-transitions">
+            <div class="panel-header">
+              <h2>转场效果</h2>
+            </div>
+            <div class="transitions-grid" id="transitions-grid"></div>
+            <div class="transition-settings">
+              <div class="adjustment-row">
+                <label>转场时长</label>
+                <input type="number" id="transition-duration" min="0.1" max="5" step="0.1" value="1" class="number-input">
+                <span class="unit">秒</span>
+              </div>
+              <button id="btn-apply-transition" class="action-btn primary w-full">应用到选中片段</button>
+            </div>
           </div>
         </div>
       </aside>
@@ -78,46 +135,47 @@
             <p>选择时间轴上的片段</p>
             <p class="sub">查看和编辑属性</p>
           </div>
-          <div id="properties-content" class="properties-content" style="display: none;">
+          
+          <div id="clip-properties" class="properties-content" style="display: none;">
             <div class="property-group">
               <label class="property-label">片段信息</label>
               <div class="info-row">
                 <span class="info-key">名称:</span>
-                <span class="info-value" id="prop-name">-</span>
+                <span class="info-value" id="clip-prop-name">-</span>
               </div>
               <div class="info-row">
                 <span class="info-key">时长:</span>
-                <span class="info-value" id="prop-duration">-</span>
+                <span class="info-value" id="clip-prop-duration">-</span>
               </div>
               <div class="info-row">
                 <span class="info-key">分辨率:</span>
-                <span class="info-value" id="prop-resolution">-</span>
+                <span class="info-value" id="clip-prop-resolution">-</span>
               </div>
             </div>
 
             <div class="property-group">
               <label class="property-label">音量</label>
               <div class="volume-control">
-                <input type="range" id="prop-volume" min="0" max="200" value="100" class="slider">
-                <span class="volume-value"><span id="volume-value">100</span>%</span>
-                <button id="btn-mute" class="btn-small" title="静音">🔊</button>
+                <input type="range" id="clip-prop-volume" min="0" max="200" value="100" class="slider">
+                <span class="volume-value"><span id="clip-volume-value">100</span>%</span>
+                <button id="clip-btn-mute" class="btn-small" title="静音">🔊</button>
               </div>
               <div class="fade-controls">
                 <div class="fade-row">
                   <label>淡入:</label>
-                  <input type="number" id="prop-fadein" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <input type="number" id="clip-prop-fadein" min="0" max="10" step="0.1" value="0" class="number-input">
                   <span class="unit">秒</span>
                 </div>
                 <div class="fade-row">
                   <label>淡出:</label>
-                  <input type="number" id="prop-fadeout" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <input type="number" id="clip-prop-fadeout" min="0" max="10" step="0.1" value="0" class="number-input">
                   <span class="unit">秒</span>
                 </div>
               </div>
             </div>
 
             <div class="property-group">
-              <label class="property-label">旋转</label>
+              <label class="property-label">变换</label>
               <div class="rotation-buttons">
                 <button class="rotate-btn" data-rotate="-90" title="逆时针90°">↺</button>
                 <button class="rotate-btn" data-rotate="90" title="顺时针90°">↻</button>
@@ -125,7 +183,7 @@
               </div>
               <div class="info-row">
                 <span class="info-key">当前角度:</span>
-                <span class="info-value" id="prop-rotation">0°</span>
+                <span class="info-value" id="clip-prop-rotation">0°</span>
               </div>
             </div>
 
@@ -145,25 +203,216 @@
               <div class="trim-controls">
                 <div class="trim-row">
                   <label>入点:</label>
-                  <input type="number" id="trim-start" min="0" step="0.1" value="0" class="number-input">
+                  <input type="number" id="clip-trim-start" min="0" step="0.1" value="0" class="number-input">
                   <span class="unit">秒</span>
-                  <button id="btn-set-start" class="btn-small">设为当前</button>
+                  <button id="clip-btn-set-start" class="btn-small">设为当前</button>
                 </div>
                 <div class="trim-row">
                   <label>出点:</label>
-                  <input type="number" id="trim-end" min="0" step="0.1" value="0" class="number-input">
+                  <input type="number" id="clip-trim-end" min="0" step="0.1" value="0" class="number-input">
                   <span class="unit">秒</span>
-                  <button id="btn-set-end" class="btn-small">设为当前</button>
+                  <button id="clip-btn-set-end" class="btn-small">设为当前</button>
                 </div>
-                <button id="btn-apply-trim" class="action-btn primary w-full">应用裁剪</button>
+                <button id="clip-btn-apply-trim" class="action-btn primary w-full">应用裁剪</button>
               </div>
             </div>
 
             <div class="property-group">
               <label class="property-label">操作</label>
               <div class="action-buttons">
-                <button id="btn-split" class="action-btn secondary">✂️ 分割</button>
-                <button id="btn-delete" class="action-btn danger">🗑️ 删除</button>
+                <button id="clip-btn-split" class="action-btn secondary">✂️ 分割</button>
+                <button id="clip-btn-delete" class="action-btn danger">🗑️ 删除</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="text-properties" class="properties-content" style="display: none;">
+            <div class="property-group">
+              <label class="property-label">文字内容</label>
+              <textarea id="text-content" rows="3" class="text-input" placeholder="输入文字内容"></textarea>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">字体设置</label>
+              <div class="font-controls">
+                <select id="text-font-family" class="select-input">
+                  <option value="Arial">Arial</option>
+                  <option value="Helvetica">Helvetica</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Georgia">Georgia</option>
+                  <option value="Verdana">Verdana</option>
+                  <option value="Courier New">Courier New</option>
+                  <option value="Microsoft YaHei">微软雅黑</option>
+                  <option value="SimHei">黑体</option>
+                  <option value="SimSun">宋体</option>
+                  <option value="KaiTi">楷体</option>
+                </select>
+                <div class="font-style-buttons">
+                  <button class="font-style-btn" id="btn-bold" title="粗体">B</button>
+                  <button class="font-style-btn" id="btn-italic" title="斜体">I</button>
+                </div>
+              </div>
+              <div class="adjustment-row">
+                <label>字号</label>
+                <input type="range" id="text-font-size" min="12" max="200" value="36" class="slider">
+                <span id="font-size-value">36</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">颜色设置</label>
+              <div class="color-controls">
+                <div class="color-row">
+                  <label>文字颜色</label>
+                  <input type="color" id="text-color" value="#ffffff" class="color-input">
+                </div>
+                <div class="color-row">
+                  <label>描边颜色</label>
+                  <input type="color" id="text-stroke-color" value="#000000" class="color-input">
+                </div>
+                <div class="adjustment-row">
+                  <label>描边宽度</label>
+                  <input type="range" id="text-stroke-width" min="0" max="20" value="0" class="slider">
+                  <span id="stroke-width-value">0</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">阴影效果</label>
+              <div class="adjustment-row">
+                <label>阴影模糊</label>
+                <input type="range" id="text-shadow-blur" min="0" max="50" value="0" class="slider">
+                <span id="shadow-blur-value">0</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">动画效果</label>
+              <select id="text-animation" class="select-input">
+                <option value="none">无动画</option>
+                <option value="fadeIn">淡入</option>
+                <option value="fadeOut">淡出</option>
+                <option value="fadeInOut">淡入淡出</option>
+                <option value="scrollLeft">向左滚动</option>
+                <option value="scrollRight">向右滚动</option>
+                <option value="bounce">弹跳</option>
+                <option value="typewriter">打字机</option>
+              </select>
+              <div class="adjustment-row">
+                <label>动画时长</label>
+                <input type="number" id="text-anim-duration" min="0.1" max="5" step="0.1" value="1" class="number-input">
+                <span class="unit">秒</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">时间设置</label>
+              <div class="trim-row">
+                <label>开始:</label>
+                <input type="number" id="text-start-time" min="0" step="0.1" value="0" class="number-input">
+                <span class="unit">秒</span>
+              </div>
+              <div class="trim-row">
+                <label>结束:</label>
+                <input type="number" id="text-end-time" min="0" step="0.1" value="10" class="number-input">
+                <span class="unit">秒</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">变换</label>
+              <div class="adjustment-row">
+                <label>缩放</label>
+                <input type="range" id="text-scale" min="10" max="500" value="100" class="slider">
+                <span id="text-scale-value">100</span>%
+              </div>
+              <div class="adjustment-row">
+                <label>旋转</label>
+                <input type="range" id="text-rotation" min="-180" max="180" value="0" class="slider">
+                <span id="text-rotation-value">0</span>°
+              </div>
+              <div class="adjustment-row">
+                <label>透明度</label>
+                <input type="range" id="text-opacity" min="0" max="100" value="100" class="slider">
+                <span id="text-opacity-value">100</span>%
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">操作</label>
+              <div class="action-buttons">
+                <button id="text-btn-delete" class="action-btn danger">🗑️ 删除文字</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="sticker-properties" class="properties-content" style="display: none;">
+            <div class="property-group">
+              <label class="property-label">贴纸信息</label>
+              <div class="info-row">
+                <span class="info-key">名称:</span>
+                <span class="info-value" id="sticker-prop-name">-</span>
+              </div>
+              <div class="info-row">
+                <span class="info-key">原始尺寸:</span>
+                <span class="info-value" id="sticker-prop-size">-</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">时间设置</label>
+              <div class="trim-row">
+                <label>开始:</label>
+                <input type="number" id="sticker-start-time" min="0" step="0.1" value="0" class="number-input">
+                <span class="unit">秒</span>
+              </div>
+              <div class="trim-row">
+                <label>结束:</label>
+                <input type="number" id="sticker-end-time" min="0" step="0.1" value="10" class="number-input">
+                <span class="unit">秒</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">变换</label>
+              <div class="adjustment-row">
+                <label>缩放</label>
+                <input type="range" id="sticker-scale" min="10" max="500" value="100" class="slider">
+                <span id="sticker-scale-value">100</span>%
+              </div>
+              <div class="adjustment-row">
+                <label>旋转</label>
+                <input type="range" id="sticker-rotation" min="-180" max="180" value="0" class="slider">
+                <span id="sticker-rotation-value">0</span>°
+              </div>
+              <div class="adjustment-row">
+                <label>透明度</label>
+                <input type="range" id="sticker-opacity" min="0" max="100" value="100" class="slider">
+                <span id="sticker-opacity-value">100</span>%
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">淡入淡出</label>
+              <div class="fade-controls">
+                <div class="fade-row">
+                  <label>淡入:</label>
+                  <input type="number" id="sticker-fadein" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                </div>
+                <div class="fade-row">
+                  <label>淡出:</label>
+                  <input type="number" id="sticker-fadeout" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">操作</label>
+              <div class="action-buttons">
+                <button id="sticker-btn-delete" class="action-btn danger">🗑️ 删除贴纸</button>
               </div>
             </div>
           </div>
@@ -185,13 +434,8 @@
       </div>
       <div class="timeline-body">
         <div class="timeline-tracks">
-          <div class="track-header">
-            <div class="track-label">
-              <span class="track-icon">🎬</span>
-              <span>视频轨道</span>
-            </div>
-          </div>
-          <div class="track-content" id="video-track">
+          <div class="track-headers" id="track-headers"></div>
+          <div class="track-content" id="tracks-container">
             <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
           </div>
         </div>

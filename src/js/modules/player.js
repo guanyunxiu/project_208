@@ -1,4 +1,7 @@
 import { EventBus, formatTime, getAspectRatio, clamp } from './utils.js';
+import { filterManager } from './filters.js';
+import { textManager } from './text.js';
+import { transitionManager, TRANSITIONS } from './transitions.js';
 
 class VideoPlayer {
   constructor() {
@@ -23,6 +26,7 @@ class VideoPlayer {
     this.totalDuration = 0;
     this.currentClip = null;
     this.activeClips = [];
+    this.loadedClips = new Map();
 
     this.audioContext = null;
     this.audioSource = null;
@@ -38,6 +42,7 @@ class VideoPlayer {
     this.setupCanvas();
     this.setupEventListeners();
     this.setupAudio();
+    this.setupInteractionHandlers();
 
     EventBus.on('clip:added', () => this.updateClips());
     EventBus.on('clip:deleted', () => this.updateClips());
@@ -48,19 +53,20 @@ class VideoPlayer {
       this.currentTime = clamp(time, 0, this.totalDuration);
       this.updateTimeDisplay();
       this.updateScrubber();
-      
-      const activeClip = this.getActiveClipAtTime(this.currentTime);
-      if (activeClip) {
-        this.loadClipForPlayback(activeClip);
-      } else {
-        this.videoElement.pause();
-      }
-      
       this.renderFrame();
     });
     EventBus.on('timeline:duration', (duration) => this.updateDuration(duration));
     EventBus.on('material:preview', (material) => this.previewMaterial(material));
     EventBus.on('player:update', () => this.renderFrame());
+    EventBus.on('track:updated', () => this.renderFrame());
+
+    EventBus.on('text:added', () => this.renderFrame());
+    EventBus.on('text:updated', () => this.renderFrame());
+    EventBus.on('text:deleted', () => this.renderFrame());
+    EventBus.on('sticker:added', () => this.renderFrame());
+    EventBus.on('sticker:updated', () => this.renderFrame());
+    EventBus.on('sticker:deleted', () => this.renderFrame());
+    EventBus.on('item:selected', () => this.renderFrame());
 
     window.addEventListener('resize', () => this.setupCanvas());
   }
@@ -86,6 +92,37 @@ class VideoPlayer {
     } catch (e) {
       console.warn('Web Audio API not supported:', e);
     }
+  }
+
+  setupInteractionHandlers() {
+    this.canvasElement.addEventListener('mousedown', (e) => {
+      if (textManager.handleMouseDown(e, this.canvasElement)) {
+        e.preventDefault();
+      }
+    });
+
+    this.canvasElement.addEventListener('mousemove', (e) => {
+      if (textManager.handleMouseMove(e, this.canvasElement)) {
+        e.preventDefault();
+        this.canvasElement.style.cursor = 'move';
+      } else {
+        this.canvasElement.style.cursor = 'default';
+      }
+    });
+
+    this.canvasElement.addEventListener('mouseup', () => {
+      textManager.handleMouseUp();
+    });
+
+    this.canvasElement.addEventListener('mouseleave', () => {
+      textManager.handleMouseUp();
+    });
+
+    this.canvasElement.addEventListener('wheel', (e) => {
+      if (textManager.handleWheel(e, this.canvasElement)) {
+        e.preventDefault();
+      }
+    }, { passive: false });
   }
 
   setupEventListeners() {
@@ -178,11 +215,6 @@ class VideoPlayer {
       this.audioContext.resume();
     }
 
-    const activeClip = this.getActiveClipAtTime(this.currentTime);
-    if (activeClip) {
-      this.loadClipForPlayback(activeClip);
-    }
-
     this.videoElement.play().catch(e => console.warn('Playback failed:', e));
     this.startRenderLoop();
     EventBus.emit('player:play');
@@ -206,33 +238,17 @@ class VideoPlayer {
     if (Math.abs(this.videoElement.currentTime - clipLocalTime) > 0.1) {
       this.videoElement.currentTime = clamp(clipLocalTime, clip.trimStart, clip.trimEnd);
     }
-
-    this.applyClipEffects(clip);
   }
 
-  applyClipEffects(clip) {
-    this.videoElement.volume = clip.muted ? 0 : clip.volume;
-    
-    if (this.gainNode) {
-      const clipProgress = (this.currentTime - clip.startTime) / (clip.endTime - clip.startTime);
-      let gainMultiplier = 1;
-
-      if (clip.fadeIn > 0 && clipProgress < clip.fadeIn / (clip.endTime - clip.startTime)) {
-        gainMultiplier = clipProgress / (clip.fadeIn / (clip.endTime - clip.startTime));
-      } else if (clip.fadeOut > 0 && clipProgress > 1 - clip.fadeOut / (clip.endTime - clip.startTime)) {
-        gainMultiplier = (1 - clipProgress) / (clip.fadeOut / (clip.endTime - clip.startTime));
-      }
-
-      this.gainNode.gain.value = clamp(clip.muted ? 0 : clip.volume * gainMultiplier, 0, 2);
-    }
-
-    this.renderFrame();
+  getActiveClipsAtTime(time) {
+    if (!window.__timelineManager) return [];
+    return window.__timelineManager.getActiveClipsAtTime(time);
   }
 
-  getActiveClipAtTime(time) {
-    return this.activeClips.find(clip => 
-      time >= clip.startTime && time < clip.endTime
-    );
+  getPreviousClip(clip, allClips) {
+    const sorted = [...allClips].sort((a, b) => a.startTime - b.startTime);
+    const index = sorted.findIndex(c => c.id === clip.id);
+    return index > 0 ? sorted[index - 1] : null;
   }
 
   seekTo(time) {
@@ -240,9 +256,10 @@ class VideoPlayer {
     this.updateTimeDisplay();
     this.updateScrubber();
 
-    const activeClip = this.getActiveClipAtTime(this.currentTime);
-    if (activeClip) {
-      this.loadClipForPlayback(activeClip);
+    const activeClips = this.getActiveClipsAtTime(this.currentTime);
+    if (activeClips.length > 0) {
+      const topClip = activeClips[0];
+      this.loadClipForPlayback(topClip);
     } else {
       this.videoElement.pause();
     }
@@ -277,16 +294,18 @@ class VideoPlayer {
   updateFromVideo() {
     if (!this.videoElement.readyState) return;
 
-    const activeClip = this.getActiveClipAtTime(this.currentTime);
-    if (activeClip) {
+    const activeClips = this.getActiveClipsAtTime(this.currentTime);
+    
+    if (activeClips.length > 0) {
+      const topClip = activeClips[0];
       const videoTime = this.videoElement.currentTime;
-      const clipLocalTime = videoTime - activeClip.trimStart;
-      const newTime = activeClip.startTime + clipLocalTime;
+      const clipLocalTime = videoTime - topClip.trimStart;
+      const newTime = topClip.startTime + clipLocalTime;
 
-      if (newTime >= activeClip.endTime - 0.05) {
-        const nextClip = this.getActiveClipAtTime(activeClip.endTime + 0.01);
-        if (nextClip) {
-          this.switchToNextClip(nextClip);
+      if (newTime >= topClip.endTime - 0.05) {
+        const nextClips = this.getActiveClipsAtTime(topClip.endTime + 0.01);
+        if (nextClips.length > 0) {
+          this.switchToNextClip(nextClips[0], topClip);
           return;
         } else {
           this.currentTime = this.totalDuration;
@@ -303,7 +322,12 @@ class VideoPlayer {
         this.currentTime = clamp(newTime, 0, this.totalDuration);
       }
 
-      this.applyClipEffects(activeClip);
+      const track = window.__timelineManager?.getTracks().find(t => t.id === topClip.trackId);
+      if (track && !track.muted && !topClip.muted) {
+        this.applyAudioEffects(topClip);
+      } else if (this.gainNode) {
+        this.gainNode.gain.value = 0;
+      }
     } else {
       this.currentTime = Math.min(this.currentTime + 1/30, this.totalDuration);
     }
@@ -313,7 +337,22 @@ class VideoPlayer {
     EventBus.emit('player:timeupdate', this.currentTime);
   }
 
-  async switchToNextClip(nextClip) {
+  applyAudioEffects(clip) {
+    if (!this.gainNode) return;
+    
+    const clipProgress = (this.currentTime - clip.startTime) / (clip.endTime - clip.startTime);
+    let gainMultiplier = 1;
+
+    if (clip.fadeIn > 0 && clipProgress < clip.fadeIn / (clip.endTime - clip.startTime)) {
+      gainMultiplier = clipProgress / (clip.fadeIn / (clip.endTime - clip.startTime));
+    } else if (clip.fadeOut > 0 && clipProgress > 1 - clip.fadeOut / (clip.endTime - clip.startTime)) {
+      gainMultiplier = (1 - clipProgress) / (clip.fadeOut / (clip.endTime - clip.startTime));
+    }
+
+    this.gainNode.gain.value = clamp(clip.volume * gainMultiplier, 0, 2);
+  }
+
+  async switchToNextClip(nextClip, currentClip) {
     if (this.isSwitchingClips) return;
     this.isSwitchingClips = true;
 
@@ -342,7 +381,6 @@ class VideoPlayer {
     
     await new Promise(resolve => setTimeout(resolve, 50));
     
-    this.applyClipEffects(nextClip);
     this.updateTimeDisplay();
     this.updateScrubber();
     EventBus.emit('player:timeupdate', this.currentTime);
@@ -363,10 +401,10 @@ class VideoPlayer {
 
   onVideoEnded() {
     if (this.currentClip) {
-      const nextClip = this.getActiveClipAtTime(this.currentClip.endTime + 0.01);
-      if (nextClip) {
-        this.currentTime = nextClip.startTime;
-        this.loadClipForPlayback(nextClip);
+      const nextClips = this.getActiveClipsAtTime(this.currentClip.endTime + 0.01);
+      if (nextClips.length > 0) {
+        this.currentTime = nextClips[0].startTime;
+        this.loadClipForPlayback(nextClips[0]);
         this.videoElement.play();
       } else {
         this.pause();
@@ -385,90 +423,130 @@ class VideoPlayer {
     this.canvasCtx.fillStyle = '#000';
     this.canvasCtx.fillRect(0, 0, width, height);
 
+    const activeClips = this.getActiveClipsAtTime(this.currentTime);
+    
+    for (const clip of activeClips) {
+      this.renderClip(clip, width, height);
+    }
+
+    if (window.__textManager) {
+      const activeItems = window.__textManager.getActiveItems(this.currentTime);
+      for (const item of activeItems) {
+        const track = window.__timelineManager?.getTracks().find(t => t.id === item.trackId);
+        if (track && track.hidden) continue;
+        
+        window.__textManager.renderItem(this.canvasCtx, item, this.currentTime, width, height);
+      }
+    }
+  }
+
+  renderClip(clip, width, height) {
     if (!this.videoElement.readyState || this.videoElement.videoWidth === 0) {
       return;
     }
 
-    const activeClip = this.currentClip || this.getActiveClipAtTime(this.currentTime);
+    const transitionInfo = transitionManager.isInTransition(clip, this.currentTime);
     
-    if (activeClip) {
-      this.canvasCtx.save();
-      
-      const centerX = width / 2;
-      const centerY = height / 2;
-      
-      this.canvasCtx.translate(centerX, centerY);
-      this.canvasCtx.rotate((activeClip.rotation * Math.PI) / 180);
-      this.canvasCtx.translate(-centerX, -centerY);
-
-      let drawWidth = this.videoElement.videoWidth;
-      let drawHeight = this.videoElement.videoHeight;
-      const aspectRatio = getAspectRatio(activeClip.aspectRatio);
-
-      let sx = 0, sy = 0, sWidth = drawWidth, sHeight = drawHeight;
-
-      if (aspectRatio) {
-        const videoAspect = drawWidth / drawHeight;
-        if (videoAspect > aspectRatio) {
-          sWidth = drawHeight * aspectRatio;
-          sx = (drawWidth - sWidth) / 2;
-        } else {
-          sHeight = drawWidth / aspectRatio;
-          sy = (drawHeight - sHeight) / 2;
-        }
-      }
-
-      let scaledWidth, scaledHeight;
-      if (activeClip.rotation % 180 !== 0) {
-        scaledWidth = Math.min(width, sHeight * (width / height));
-        scaledHeight = Math.min(height, sWidth * (height / width));
-        const temp = scaledWidth;
-        scaledWidth = scaledHeight;
-        scaledHeight = temp;
-      } else {
-        scaledWidth = Math.min(width, sWidth * (height / sHeight));
-        scaledHeight = Math.min(height, sHeight * (width / sWidth));
-        
-        if (sWidth / sHeight > width / height) {
-          scaledWidth = width;
-          scaledHeight = width * (sHeight / sWidth);
-        } else {
-          scaledHeight = height;
-          scaledWidth = height * (sWidth / sHeight);
-        }
-      }
-
-      const drawX = (width - scaledWidth) / 2;
-      const drawY = (height - scaledHeight) / 2;
-
-      try {
-        this.canvasCtx.drawImage(
-          this.videoElement,
-          sx, sy, sWidth, sHeight,
-          drawX, drawY, scaledWidth, scaledHeight
+    if (transitionInfo) {
+      const allClips = this.activeClips;
+      const prevClip = this.getPreviousClip(clip, allClips);
+      if (prevClip) {
+        transitionManager.applyTransition(
+          this.canvasCtx, 
+          prevClip, 
+          clip, 
+          transitionInfo.progress,
+          this.currentTime
         );
-      } catch (e) {
-        console.warn('Frame render failed:', e);
+        this.applyClipFilters(clip, width, height);
+        return;
+      }
+    }
+
+    this.canvasCtx.save();
+    
+    const centerX = width / 2;
+    const centerY = height / 2;
+    
+    this.canvasCtx.translate(centerX, centerY);
+    this.canvasCtx.rotate((clip.rotation * Math.PI) / 180);
+    this.canvasCtx.translate(-centerX, -centerY);
+
+    let drawWidth = this.videoElement.videoWidth;
+    let drawHeight = this.videoElement.videoHeight;
+    const aspectRatio = getAspectRatio(clip.aspectRatio);
+
+    let sx = 0, sy = 0, sWidth = drawWidth, sHeight = drawHeight;
+
+    if (aspectRatio) {
+      const videoAspect = drawWidth / drawHeight;
+      if (videoAspect > aspectRatio) {
+        sWidth = drawHeight * aspectRatio;
+        sx = (drawWidth - sWidth) / 2;
+      } else {
+        sHeight = drawWidth / aspectRatio;
+        sy = (drawHeight - sHeight) / 2;
+      }
+    }
+
+    let scaledWidth, scaledHeight;
+    if (clip.rotation % 180 !== 0) {
+      scaledWidth = Math.min(width, sHeight * (width / height));
+      scaledHeight = Math.min(height, sWidth * (height / width));
+      const temp = scaledWidth;
+      scaledWidth = scaledHeight;
+      scaledHeight = temp;
+    } else {
+      scaledWidth = Math.min(width, sWidth * (height / sHeight));
+      scaledHeight = Math.min(height, sHeight * (width / sWidth));
+      
+      if (sWidth / sHeight > width / height) {
+        scaledWidth = width;
+        scaledHeight = width * (sHeight / sWidth);
+      } else {
+        scaledHeight = height;
+        scaledWidth = height * (sWidth / sHeight);
+      }
+    }
+
+    const drawX = (width - scaledWidth) / 2;
+    const drawY = (height - scaledHeight) / 2;
+
+    try {
+      this.canvasCtx.drawImage(
+        this.videoElement,
+        sx, sy, sWidth, sHeight,
+        drawX, drawY, scaledWidth, scaledHeight
+      );
+    } catch (e) {
+      console.warn('Frame render failed:', e);
+    }
+
+    this.canvasCtx.restore();
+
+    this.applyClipFilters(clip, width, height);
+
+    if (clip.fadeIn > 0 || clip.fadeOut > 0) {
+      const clipDuration = clip.endTime - clip.startTime;
+      const clipProgress = (this.currentTime - clip.startTime) / clipDuration;
+      let opacity = 1;
+
+      if (clip.fadeIn > 0 && clipProgress < clip.fadeIn / clipDuration) {
+        opacity = clipProgress / (clip.fadeIn / clipDuration);
+      } else if (clip.fadeOut > 0 && clipProgress > 1 - clip.fadeOut / clipDuration) {
+        opacity = (1 - clipProgress) / (clip.fadeOut / clipDuration);
       }
 
-      this.canvasCtx.restore();
-
-      if (activeClip.fadeIn > 0 || activeClip.fadeOut > 0) {
-        const clipDuration = activeClip.endTime - activeClip.startTime;
-        const clipProgress = (this.currentTime - activeClip.startTime) / clipDuration;
-        let opacity = 1;
-
-        if (activeClip.fadeIn > 0 && clipProgress < activeClip.fadeIn / clipDuration) {
-          opacity = clipProgress / (activeClip.fadeIn / clipDuration);
-        } else if (activeClip.fadeOut > 0 && clipProgress > 1 - activeClip.fadeOut / clipDuration) {
-          opacity = (1 - clipProgress) / (activeClip.fadeOut / clipDuration);
-        }
-
-        if (opacity < 1) {
-          this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${1 - opacity})`;
-          this.canvasCtx.fillRect(0, 0, width, height);
-        }
+      if (opacity < 1) {
+        this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${1 - opacity})`;
+        this.canvasCtx.fillRect(0, 0, width, height);
       }
+    }
+  }
+
+  applyClipFilters(clip, width, height) {
+    if (filterManager) {
+      filterManager.applyFilters(this.canvasCtx, width, height, clip, this.currentTime);
     }
   }
 
