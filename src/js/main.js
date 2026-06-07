@@ -123,9 +123,9 @@ class VideoEditorApp {
       showToast(message, type);
     });
 
-    EventBus.on('timeline:seek', (time) => {
-      videoPlayer.currentTime = time;
-      videoPlayer.renderFrame();
+    EventBus.on('player:seek', (time) => {
+      timelineManager.currentTime = time;
+      timelineManager.updatePlayhead(time);
     });
   }
 

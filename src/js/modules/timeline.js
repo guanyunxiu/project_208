@@ -448,7 +448,7 @@ class TimelineManager {
     if (this.clips.length === 0) {
       this.totalDuration = 60;
     } else {
-      this.totalDuration = Math.max(60, ...this.clips.map(c => c.endTime));
+      this.totalDuration = Math.max(1, ...this.clips.map(c => c.endTime));
     }
     EventBus.emit('timeline:duration', this.totalDuration);
   }

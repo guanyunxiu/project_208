@@ -44,7 +44,20 @@ class VideoPlayer {
     EventBus.on('clip:updated', () => this.updateClips());
     EventBus.on('clip:selected', (clip) => this.onClipSelected(clip));
     EventBus.on('clip:preview', (clip) => this.previewClip(clip));
-    EventBus.on('timeline:seek', (time) => this.seekTo(time));
+    EventBus.on('timeline:seek', (time) => {
+      this.currentTime = clamp(time, 0, this.totalDuration);
+      this.updateTimeDisplay();
+      this.updateScrubber();
+      
+      const activeClip = this.getActiveClipAtTime(this.currentTime);
+      if (activeClip) {
+        this.loadClipForPlayback(activeClip);
+      } else {
+        this.videoElement.pause();
+      }
+      
+      this.renderFrame();
+    });
     EventBus.on('timeline:duration', (duration) => this.updateDuration(duration));
     EventBus.on('material:preview', (material) => this.previewMaterial(material));
     EventBus.on('player:update', () => this.renderFrame());
@@ -235,7 +248,7 @@ class VideoPlayer {
     }
 
     this.renderFrame();
-    EventBus.emit('timeline:seek', this.currentTime);
+    EventBus.emit('player:seek', this.currentTime);
   }
 
   stepFrame(direction) {
@@ -276,12 +289,18 @@ class VideoPlayer {
           this.switchToNextClip(nextClip);
           return;
         } else {
+          this.currentTime = this.totalDuration;
+          this.updateTimeDisplay();
+          this.updateScrubber();
+          EventBus.emit('player:timeupdate', this.currentTime);
           this.pause();
-          this.seekTo(0);
+          setTimeout(() => {
+            this.seekTo(0);
+          }, 500);
           return;
         }
       } else {
-        this.currentTime = newTime;
+        this.currentTime = clamp(newTime, 0, this.totalDuration);
       }
 
       this.applyClipEffects(activeClip);
