@@ -270,11 +270,11 @@ class VideoPlayer {
       const clipLocalTime = videoTime - activeClip.trimStart;
       const newTime = activeClip.startTime + clipLocalTime;
 
-      if (newTime >= activeClip.endTime) {
+      if (newTime >= activeClip.endTime - 0.05) {
         const nextClip = this.getActiveClipAtTime(activeClip.endTime + 0.01);
         if (nextClip) {
-          this.currentTime = nextClip.startTime;
-          this.loadClipForPlayback(nextClip);
+          this.switchToNextClip(nextClip);
+          return;
         } else {
           this.pause();
           this.seekTo(0);
@@ -292,6 +292,48 @@ class VideoPlayer {
     this.updateTimeDisplay();
     this.updateScrubber();
     EventBus.emit('player:timeupdate', this.currentTime);
+  }
+
+  async switchToNextClip(nextClip) {
+    if (this.isSwitchingClips) return;
+    this.isSwitchingClips = true;
+
+    this.videoElement.pause();
+    this.stopRenderLoop();
+
+    const wasPlaying = this.isPlaying;
+    this.currentTime = nextClip.startTime;
+
+    const clipLocalTime = nextClip.trimStart;
+    
+    if (this.videoElement.src !== nextClip.material.url) {
+      this.videoElement.src = nextClip.material.url;
+      
+      await new Promise((resolve) => {
+        const onCanPlay = () => {
+          this.videoElement.removeEventListener('canplay', onCanPlay);
+          resolve();
+        };
+        this.videoElement.addEventListener('canplay', onCanPlay);
+        this.videoElement.load();
+      });
+    }
+
+    this.videoElement.currentTime = clipLocalTime;
+    
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    this.applyClipEffects(nextClip);
+    this.updateTimeDisplay();
+    this.updateScrubber();
+    EventBus.emit('player:timeupdate', this.currentTime);
+
+    this.isSwitchingClips = false;
+
+    if (wasPlaying) {
+      this.videoElement.play().catch(e => console.warn('Playback after switch failed:', e));
+      this.startRenderLoop();
+    }
   }
 
   onVideoTimeUpdate() {

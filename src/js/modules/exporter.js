@@ -45,6 +45,12 @@ class VideoExporter {
 
   async loadFFmpeg() {
     try {
+      if (this.ffmpeg) {
+        try {
+          this.ffmpeg.terminate();
+        } catch (e) {}
+      }
+      
       this.ffmpeg = new FFmpeg();
 
       this.ffmpeg.on('log', ({ message }) => {
@@ -89,7 +95,13 @@ class VideoExporter {
     this.exportModal.style.display = 'flex';
     this.progressContainer.style.display = 'none';
     this.startExportBtn.disabled = false;
+    this.cancelExportBtn.disabled = true;
     this.resetProgress();
+
+    this.formatSelect.disabled = false;
+    this.resolutionSelect.disabled = false;
+    this.qualitySelect.disabled = false;
+    this.closeExportBtn.disabled = false;
   }
 
   closeModal() {
@@ -114,8 +126,14 @@ class VideoExporter {
     this.isExporting = true;
     this.exportAbortController = new AbortController();
     this.startExportBtn.disabled = true;
+    this.cancelExportBtn.disabled = false;
     this.progressContainer.style.display = 'block';
     this.updateProgress(0);
+
+    this.formatSelect.disabled = true;
+    this.resolutionSelect.disabled = true;
+    this.qualitySelect.disabled = true;
+    this.closeExportBtn.disabled = true;
 
     try {
       const format = this.formatSelect.value;
@@ -145,7 +163,7 @@ class VideoExporter {
         showToast('视频导出成功！', 'success');
       }
     } catch (error) {
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || this.wasCancelled) {
         showToast('导出已取消', 'info');
       } else {
         console.error('Export failed:', error);
@@ -153,22 +171,48 @@ class VideoExporter {
       }
     } finally {
       this.isExporting = false;
+      this.wasCancelled = false;
       this.exportAbortController = null;
       this.startExportBtn.disabled = false;
+      this.cancelExportBtn.disabled = true;
+
+      this.formatSelect.disabled = false;
+      this.resolutionSelect.disabled = false;
+      this.qualitySelect.disabled = false;
+      this.closeExportBtn.disabled = false;
     }
   }
 
   cancelExport() {
+    if (!this.isExporting) return;
+    
+    this.wasCancelled = true;
+    this.isLoaded = false;
+    
     if (this.exportAbortController) {
       this.exportAbortController.abort();
     }
+
+    if (this.ffmpeg && typeof this.ffmpeg.terminate === 'function') {
+      try {
+        this.ffmpeg.terminate();
+      } catch (e) {
+        console.warn('Failed to terminate FFmpeg:', e);
+      }
+    }
+
+    this.updateProgress(0, '正在取消...');
     this.isExporting = false;
+
+    setTimeout(() => {
+      this.loadFFmpeg();
+    }, 500);
   }
 
   async exportVideo(clips, options) {
     const { format, resolution, quality, outputFilename, signal } = options;
 
-    if (signal.aborted) {
+    if (signal.aborted || this.wasCancelled) {
       throw new DOMException('Aborted', 'AbortError');
     }
 
@@ -180,11 +224,23 @@ class VideoExporter {
     const concatContent = [];
 
     for (let i = 0; i < sortedClips.length; i++) {
+      if (signal.aborted || this.wasCancelled) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
       const clip = sortedClips[i];
       const inputName = `input_${i}.${format}`;
       
+      this.updateProgress(Math.round((i / sortedClips.length) * 20), 
+        `正在加载素材 ${i + 1}/${sortedClips.length}...`);
+      
       try {
         const fileData = await fetchFile(clip.material.file);
+        
+        if (signal.aborted || this.wasCancelled) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
+        
         await ffmpeg.writeFile(inputName, fileData);
         fileList.push(inputName);
 
@@ -192,8 +248,13 @@ class VideoExporter {
         concatContent.push(`inpoint ${clip.trimStart}`);
         concatContent.push(`outpoint ${clip.trimEnd}`);
       } catch (e) {
+        if (e.name === 'AbortError') throw e;
         console.warn(`Failed to process clip ${i}:`, e);
       }
+    }
+
+    if (signal.aborted || this.wasCancelled) {
+      throw new DOMException('Aborted', 'AbortError');
     }
 
     if (fileList.length === 0) {
@@ -201,6 +262,10 @@ class VideoExporter {
     }
 
     await ffmpeg.writeFile('concat.txt', concatContent.join('\n'));
+
+    if (signal.aborted || this.wasCancelled) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
 
     const crf = quality === 'high' ? 18 : quality === 'medium' ? 23 : 28;
     const preset = quality === 'high' ? 'slow' : quality === 'medium' ? 'medium' : 'fast';
@@ -222,13 +287,28 @@ class VideoExporter {
       outputFilename
     ];
 
-    this.updateProgress(5, '正在编码...');
+    this.updateProgress(25, '正在编码...');
 
-    await ffmpeg.exec(args);
+    try {
+      await ffmpeg.exec(args);
+    } catch (e) {
+      if (this.wasCancelled || signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      throw e;
+    }
 
-    this.updateProgress(95, '正在生成文件...');
+    if (signal.aborted || this.wasCancelled) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    this.updateProgress(90, '正在生成文件...');
 
     const data = await ffmpeg.readFile(outputFilename);
+
+    if (signal.aborted || this.wasCancelled) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
 
     for (const file of fileList) {
       try {
