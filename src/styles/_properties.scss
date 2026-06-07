@@ -1,0 +1,188 @@
+.properties-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.property-group {
+  background: $bg-secondary;
+  border: 1px solid $border-color;
+  border-radius: $radius-md;
+  padding: 12px;
+
+  .property-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-secondary;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+
+  .info-key {
+    color: $text-muted;
+  }
+
+  .info-value {
+    color: $text-primary;
+    font-weight: 500;
+  }
+}
+
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+
+  .slider {
+    flex: 1;
+    height: 4px;
+    background: $bg-tertiary;
+    border-radius: 2px;
+    -webkit-appearance: none;
+    appearance: none;
+
+    &::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: $primary-color;
+      cursor: pointer;
+      transition: transform $transition-fast;
+
+      &:hover {
+        transform: scale(1.2);
+      }
+    }
+
+    &::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: $primary-color;
+      cursor: pointer;
+      border: none;
+    }
+  }
+
+  .volume-value {
+    font-size: 12px;
+    color: $text-secondary;
+    min-width: 40px;
+    text-align: right;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+  }
+}
+
+.fade-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fade-row,
+.trim-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  label {
+    font-size: 12px;
+    color: $text-muted;
+    min-width: 36px;
+  }
+
+  .number-input {
+    flex: 1;
+    padding: 6px 8px;
+    background: $bg-tertiary;
+    border: 1px solid $border-color;
+    border-radius: $radius-sm;
+    font-size: 13px;
+    color: $text-primary;
+    text-align: center;
+    -moz-appearance: textfield;
+
+    &::-webkit-outer-spin-button,
+    &::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    &:focus {
+      border-color: $primary-color;
+    }
+  }
+
+  .unit {
+    font-size: 11px;
+    color: $text-muted;
+    min-width: 20px;
+  }
+}
+
+.rotation-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.aspect-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.trim-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+
+  .action-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+
+  label {
+    font-size: 13px;
+    color: $text-secondary;
+  }
+
+  select {
+    padding: 8px 12px;
+    background: $bg-tertiary;
+    border: 1px solid $border-color;
+    border-radius: $radius-sm;
+    color: $text-primary;
+    font-size: 13px;
+    min-width: 180px;
+
+    &:focus {
+      border-color: $primary-color;
+    }
+  }
+}

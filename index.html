@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Video Editor - 纯前端视频编辑工具</title>
+  <link rel="stylesheet" href="/src/styles/main.scss">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-left">
+        <h1 class="logo">🎬 Web Video Editor</h1>
+      </div>
+      <div class="header-center">
+        <div class="transport-controls">
+          <button id="btn-prev" class="transport-btn" title="上一帧">⏮</button>
+          <button id="btn-play" class="transport-btn play-btn" title="播放/暂停">▶</button>
+          <button id="btn-next" class="transport-btn" title="下一帧">⏭</button>
+          <span class="time-display">
+            <span id="current-time">00:00.00</span> / <span id="total-time">00:00.00</span>
+          </span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="btn-save" class="action-btn secondary" title="保存项目">💾 保存</button>
+        <button id="btn-export" class="action-btn primary" title="导出视频">📤 导出</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <aside class="panel panel-left" id="materials-panel">
+        <div class="panel-header">
+          <h2>📁 素材库</h2>
+          <button id="btn-import" class="btn-small primary">+ 导入</button>
+        </div>
+        <div class="panel-content">
+          <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm" multiple hidden>
+          <div id="materials-list" class="materials-list"></div>
+          <div id="empty-state" class="empty-state">
+            <div class="empty-icon">🎞️</div>
+            <p>点击上方「+ 导入」按钮</p>
+            <p class="sub">支持 MP4 / MOV / WEBM 格式</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel panel-center">
+        <div class="preview-container">
+          <div class="preview-wrapper" id="preview-wrapper">
+            <canvas id="preview-canvas" class="preview-canvas"></canvas>
+            <video id="preview-video" class="preview-video" crossorigin="anonymous" playsinline></video>
+            <div class="preview-overlay" id="preview-overlay">
+              <div class="overlay-content">
+                <div class="overlay-icon">🎥</div>
+                <p>从左侧拖拽素材到时间轴开始编辑</p>
+              </div>
+            </div>
+          </div>
+          <div class="preview-controls">
+            <div class="scrubber-bar">
+              <div class="scrubber-track" id="scrubber-track">
+                <div class="scrubber-progress" id="scrubber-progress"></div>
+                <div class="scrubber-handle" id="scrubber-handle"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel panel-right" id="properties-panel">
+        <div class="panel-header">
+          <h2>⚙️ 属性设置</h2>
+        </div>
+        <div class="panel-content">
+          <div id="no-selection" class="empty-state">
+            <div class="empty-icon">📋</div>
+            <p>选择时间轴上的片段</p>
+            <p class="sub">查看和编辑属性</p>
+          </div>
+          <div id="properties-content" class="properties-content" style="display: none;">
+            <div class="property-group">
+              <label class="property-label">片段信息</label>
+              <div class="info-row">
+                <span class="info-key">名称:</span>
+                <span class="info-value" id="prop-name">-</span>
+              </div>
+              <div class="info-row">
+                <span class="info-key">时长:</span>
+                <span class="info-value" id="prop-duration">-</span>
+              </div>
+              <div class="info-row">
+                <span class="info-key">分辨率:</span>
+                <span class="info-value" id="prop-resolution">-</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">音量</label>
+              <div class="volume-control">
+                <input type="range" id="prop-volume" min="0" max="200" value="100" class="slider">
+                <span class="volume-value"><span id="volume-value">100</span>%</span>
+                <button id="btn-mute" class="btn-small" title="静音">🔊</button>
+              </div>
+              <div class="fade-controls">
+                <div class="fade-row">
+                  <label>淡入:</label>
+                  <input type="number" id="prop-fadein" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                </div>
+                <div class="fade-row">
+                  <label>淡出:</label>
+                  <input type="number" id="prop-fadeout" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">旋转</label>
+              <div class="rotation-buttons">
+                <button class="rotate-btn" data-rotate="-90" title="逆时针90°">↺</button>
+                <button class="rotate-btn" data-rotate="90" title="顺时针90°">↻</button>
+                <button class="rotate-btn" data-rotate="180" title="180°">⟳</button>
+              </div>
+              <div class="info-row">
+                <span class="info-key">当前角度:</span>
+                <span class="info-value" id="prop-rotation">0°</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">画面比例</label>
+              <div class="aspect-buttons">
+                <button class="aspect-btn active" data-ratio="original">原始</button>
+                <button class="aspect-btn" data-ratio="16:9">16:9</button>
+                <button class="aspect-btn" data-ratio="9:16">9:16</button>
+                <button class="aspect-btn" data-ratio="1:1">1:1</button>
+                <button class="aspect-btn" data-ratio="4:3">4:3</button>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">裁剪</label>
+              <div class="trim-controls">
+                <div class="trim-row">
+                  <label>入点:</label>
+                  <input type="number" id="trim-start" min="0" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                  <button id="btn-set-start" class="btn-small">设为当前</button>
+                </div>
+                <div class="trim-row">
+                  <label>出点:</label>
+                  <input type="number" id="trim-end" min="0" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                  <button id="btn-set-end" class="btn-small">设为当前</button>
+                </div>
+                <button id="btn-apply-trim" class="action-btn primary w-full">应用裁剪</button>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">操作</label>
+              <div class="action-buttons">
+                <button id="btn-split" class="action-btn secondary">✂️ 分割</button>
+                <button id="btn-delete" class="action-btn danger">🗑️ 删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="timeline-container">
+      <div class="timeline-header">
+        <div class="timeline-toolbar">
+          <button id="btn-zoom-in" class="btn-small" title="放大">🔍+</button>
+          <button id="btn-zoom-out" class="btn-small" title="缩小">🔍-</button>
+          <button id="btn-fit" class="btn-small" title="适应">⬛</button>
+          <span class="zoom-level">缩放: <span id="zoom-value">100</span>%</span>
+        </div>
+        <div class="timeline-ruler-container">
+          <canvas id="ruler-canvas" class="ruler-canvas"></canvas>
+        </div>
+      </div>
+      <div class="timeline-body">
+        <div class="timeline-tracks">
+          <div class="track-header">
+            <div class="track-label">
+              <span class="track-icon">🎬</span>
+              <span>视频轨道</span>
+            </div>
+          </div>
+          <div class="track-content" id="video-track">
+            <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
+          </div>
+        </div>
+        <div class="playhead" id="playhead">
+          <div class="playhead-line"></div>
+          <div class="playhead-handle">▼</div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div class="export-modal" id="export-modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📤 导出视频</h3>
+        <button class="modal-close" id="close-export">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="export-settings">
+          <div class="setting-row">
+            <label>格式:</label>
+            <select id="export-format">
+              <option value="mp4">MP4 (H.264)</option>
+              <option value="webm">WebM (VP9)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>分辨率:</label>
+            <select id="export-resolution">
+              <option value="original">原始</option>
+              <option value="1920x1080">1920 × 1080 (1080p)</option>
+              <option value="1280x720">1280 × 720 (720p)</option>
+              <option value="854x480">854 × 480 (480p)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>质量:</label>
+            <select id="export-quality">
+              <option value="high">高</option>
+              <option value="medium" selected>中</option>
+              <option value="low">低</option>
+            </select>
+          </div>
+        </div>
+        <div class="export-progress" id="export-progress" style="display: none;">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <div class="progress-info">
+            <span id="progress-text">正在导出... 0%</span>
+          </div>
+        </div>
+        <div class="export-actions">
+          <button id="btn-start-export" class="action-btn primary">开始导出</button>
+          <button id="btn-cancel-export" class="action-btn secondary">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="/src/js/main.js"></script>
+</body>
+</html>

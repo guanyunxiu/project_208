@@ -1,0 +1,157 @@
+.export-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: $z-modal;
+  animation: fadeIn $transition-fast;
+
+  .modal-content {
+    background: $bg-secondary;
+    border: 1px solid $border-color;
+    border-radius: $radius-xl;
+    width: 90%;
+    max-width: 480px;
+    box-shadow: $shadow-lg;
+    animation: slideUp $transition-normal;
+    overflow: hidden;
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid $border-color;
+
+      h3 {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .modal-close {
+        width: 32px;
+        height: 32px;
+        border-radius: $radius-sm;
+        color: $text-muted;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all $transition-fast;
+
+        &:hover {
+          background: $bg-tertiary;
+          color: $text-primary;
+        }
+      }
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+  }
+}
+
+.export-settings {
+  margin-bottom: 20px;
+}
+
+.export-progress {
+  margin: 20px 0;
+
+  .progress-bar {
+    height: 8px;
+    background: $bg-tertiary;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, $primary-color, $info-color);
+      border-radius: 4px;
+      width: 0%;
+      transition: width $transition-fast;
+    }
+  }
+
+  .progress-info {
+    font-size: 13px;
+    color: $text-secondary;
+    text-align: center;
+  }
+}
+
+.export-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: $bg-elevated;
+  color: $text-primary;
+  padding: 12px 24px;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-lg;
+  z-index: $z-toast;
+  opacity: 0;
+  transition: all $transition-normal;
+  pointer-events: none;
+  font-size: 14px;
+  max-width: 80%;
+  text-align: center;
+  border: 1px solid $border-color;
+
+  &.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  &.success {
+    border-color: $success-color;
+  }
+
+  &.error {
+    border-color: $danger-color;
+  }
+
+  &.warning {
+    border-color: $warning-color;
+  }
+
+  &.info {
+    border-color: $info-color;
+  }
+}

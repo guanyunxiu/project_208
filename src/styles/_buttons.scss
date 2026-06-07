@@ -1,0 +1,149 @@
+.action-btn {
+  padding: 8px 16px;
+  border-radius: $radius-md;
+  font-weight: 500;
+  font-size: 13px;
+  transition: all $transition-fast;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  &.primary {
+    background: $primary-color;
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: $primary-hover;
+      transform: translateY(-1px);
+      box-shadow: $shadow-md;
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+    }
+  }
+
+  &.secondary {
+    background: $bg-tertiary;
+    color: $text-primary;
+
+    &:hover:not(:disabled) {
+      background: $border-light;
+    }
+  }
+
+  &.danger {
+    background: $danger-color;
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: darken($danger-color, 10%);
+    }
+  }
+
+  &.w-full {
+    width: 100%;
+    justify-content: center;
+    margin-top: 8px;
+  }
+}
+
+.btn-small {
+  padding: 6px 12px;
+  border-radius: $radius-sm;
+  font-size: 12px;
+  font-weight: 500;
+  background: $bg-tertiary;
+  color: $text-primary;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $border-light;
+  }
+
+  &.primary {
+    background: $primary-color;
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: $primary-hover;
+    }
+  }
+
+  &.active {
+    background: $primary-color;
+    color: white;
+  }
+}
+
+.transport-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: $bg-tertiary;
+  color: $text-primary;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $border-light;
+    transform: scale(1.05);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  &.play-btn {
+    width: 44px;
+    height: 44px;
+    background: $primary-color;
+    color: white;
+    font-size: 16px;
+
+    &:hover:not(:disabled) {
+      background: $primary-hover;
+    }
+  }
+}
+
+.rotate-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: $radius-md;
+  background: $bg-tertiary;
+  color: $text-primary;
+  font-size: 18px;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $border-light;
+    transform: scale(1.1);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+}
+
+.aspect-btn {
+  padding: 8px 12px;
+  border-radius: $radius-sm;
+  background: $bg-tertiary;
+  color: $text-primary;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $border-light;
+  }
+
+  &.active {
+    background: $primary-color;
+    color: white;
+  }
+}

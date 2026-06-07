@@ -1,0 +1,19 @@
+{
+  "name": "web-video-editor",
+  "version": "1.0.0",
+  "description": "Native Web Video Editor with HTML5, Canvas, WebCodecs and FFmpeg.wasm",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "sass": "^1.69.0"
+  },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1"
+  }
+}
