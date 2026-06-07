@@ -457,7 +457,7 @@ class VideoEditorApp {
     const selectedClip = timelineManager.getSelectedClip();
     if (selectedClip) {
       timelineManager.updateClipProperty(selectedClip.id, 'filter', 'none');
-      timelineManager.updateClipProperty(selectedClip.id, 'colorAdjustment', { ...this.colorAdjustment });
+      timelineManager.updateClipProperty(selectedClip.id, 'colorAdjust', { ...this.colorAdjustment });
     }
 
     showToast('滤镜已重置', 'info');
@@ -467,7 +467,7 @@ class VideoEditorApp {
   applyColorAdjustment() {
     const selectedClip = timelineManager.getSelectedClip();
     if (selectedClip) {
-      timelineManager.updateClipProperty(selectedClip.id, 'colorAdjustment', { ...this.colorAdjustment });
+      timelineManager.updateClipProperty(selectedClip.id, 'colorAdjust', { ...this.colorAdjustment });
       videoPlayer.renderFrame();
     }
   }
@@ -515,12 +515,14 @@ class VideoEditorApp {
 
   addDefaultText() {
     const currentTime = videoPlayer.getCurrentTime();
+    const canvas = document.getElementById('preview-canvas');
+    const rect = canvas.getBoundingClientRect();
     const textItem = textManager.addText({
-      text: '双击编辑文字',
+      content: '双击编辑文字',
       startTime: currentTime,
       endTime: currentTime + 5,
-      x: 0.5,
-      y: 0.3,
+      x: rect.width * 0.3,
+      y: rect.height * 0.3,
       fontSize: 48,
       fontFamily: 'Microsoft YaHei',
       color: '#ffffff',
@@ -528,7 +530,10 @@ class VideoEditorApp {
       strokeWidth: 2,
       shadowBlur: 4,
       animation: 'fadeInOut',
-      animationDuration: 1
+      animationDuration: 1,
+      bold: false,
+      italic: false,
+      textAlign: 'center'
     });
 
     if (textItem) {
@@ -545,16 +550,28 @@ class VideoEditorApp {
       const img = new Image();
       img.onload = () => {
         const currentTime = videoPlayer.getCurrentTime();
+        const canvas = document.getElementById('preview-canvas');
+        const rect = canvas.getBoundingClientRect();
+        
+        const maxWidth = rect.width * 0.3;
+        const scale = maxWidth / img.width;
+        const stickerWidth = img.width * scale;
+        const stickerHeight = img.height * scale;
+        
         const stickerItem = textManager.addSticker({
           name: file.name,
-          src: e.target.result,
+          url: e.target.result,
           startTime: currentTime,
           endTime: currentTime + 5,
-          x: 0.5,
-          y: 0.5,
+          x: (rect.width - stickerWidth) / 2,
+          y: (rect.height - stickerHeight) / 2,
+          width: stickerWidth,
+          height: stickerHeight,
           originalWidth: img.width,
           originalHeight: img.height,
           scale: 1,
+          rotation: 0,
+          opacity: 1,
           fadeIn: 0.5,
           fadeOut: 0.5
         });

@@ -447,22 +447,22 @@ class VideoPlayer {
 
     const transitionInfo = transitionManager.isInTransition(clip, this.currentTime);
     
-    if (transitionInfo) {
-      const allClips = this.activeClips;
+    if (transitionInfo && transitionInfo.transition) {
+      const allClips = window.__timelineManager?.getClips() || [];
       const prevClip = this.getPreviousClip(clip, allClips);
-      if (prevClip) {
-        transitionManager.applyTransition(
-          this.canvasCtx, 
-          prevClip, 
-          clip, 
-          transitionInfo.progress,
-          this.currentTime
-        );
-        this.applyClipFilters(clip, width, height);
+      
+      if (prevClip && transitionInfo.transition.type !== 'none') {
+        this.renderWithTransition(prevClip, clip, transitionInfo, width, height);
         return;
       }
     }
 
+    this.drawVideoFrame(clip, width, height);
+    this.applyClipFilters(clip, width, height);
+    this.applyFadeEffect(clip, width, height);
+  }
+
+  drawVideoFrame(clip, width, height) {
     this.canvasCtx.save();
     
     const centerX = width / 2;
@@ -523,9 +523,9 @@ class VideoPlayer {
     }
 
     this.canvasCtx.restore();
+  }
 
-    this.applyClipFilters(clip, width, height);
-
+  applyFadeEffect(clip, width, height) {
     if (clip.fadeIn > 0 || clip.fadeOut > 0) {
       const clipDuration = clip.endTime - clip.startTime;
       const clipProgress = (this.currentTime - clip.startTime) / clipDuration;
@@ -540,6 +540,104 @@ class VideoPlayer {
       if (opacity < 1) {
         this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${1 - opacity})`;
         this.canvasCtx.fillRect(0, 0, width, height);
+      }
+    }
+  }
+
+  renderWithTransition(prevClip, nextClip, transitionInfo, width, height) {
+    if (!transitionManager.tempCanvas1 || !transitionManager.tempCanvas2) {
+      this.drawVideoFrame(nextClip, width, height);
+      this.applyClipFilters(nextClip, width, height);
+      return;
+    }
+
+    const dpr = window.devicePixelRatio;
+    transitionManager.tempCanvas1.width = width * dpr;
+    transitionManager.tempCanvas1.height = height * dpr;
+    transitionManager.tempCanvas2.width = width * dpr;
+    transitionManager.tempCanvas2.height = height * dpr;
+
+    const tempCtx1 = transitionManager.tempCtx1;
+    const tempCtx2 = transitionManager.tempCtx2;
+    
+    tempCtx1.setTransform(dpr, 0, 0, dpr, 0, 0);
+    tempCtx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    tempCtx1.fillStyle = '#000';
+    tempCtx1.fillRect(0, 0, width, height);
+    tempCtx2.fillStyle = '#000';
+    tempCtx2.fillRect(0, 0, width, height);
+
+    const currentSrc = this.videoElement.src;
+    const currentTime = this.videoElement.currentTime;
+    const wasPlaying = !this.videoElement.paused;
+
+    const prevLocalTime = prevClip.trimEnd - 0.01;
+    const nextLocalTime = this.currentTime - nextClip.startTime + nextClip.trimStart;
+
+    const renderTransition = () => {
+      tempCtx1.save();
+      tempCtx1.drawImage(this.videoElement, 0, 0, width, height);
+      tempCtx1.restore();
+
+      this.videoElement.src = nextClip.material.url;
+      this.videoElement.currentTime = nextLocalTime;
+
+      const renderNextFrame = () => {
+        tempCtx2.save();
+        tempCtx2.drawImage(this.videoElement, 0, 0, width, height);
+        tempCtx2.restore();
+
+        transitionManager.applyTransition(
+          this.canvasCtx,
+          transitionManager.tempCanvas1,
+          transitionManager.tempCanvas2,
+          transitionInfo.transition.type,
+          transitionInfo.progress,
+          width,
+          height
+        );
+
+        this.applyClipFilters(nextClip, width, height);
+
+        this.videoElement.src = currentSrc;
+        this.videoElement.currentTime = currentTime;
+        if (wasPlaying) {
+          this.videoElement.play().catch(e => {});
+        }
+      };
+
+      if (this.videoElement.readyState >= 2) {
+        renderNextFrame();
+      } else {
+        this.videoElement.onseeked = () => {
+          renderNextFrame();
+          this.videoElement.onseeked = null;
+        };
+      }
+    };
+
+    if (this.videoElement.src !== prevClip.material.url) {
+      this.videoElement.src = prevClip.material.url;
+      this.videoElement.currentTime = prevLocalTime;
+      
+      if (this.videoElement.readyState >= 2) {
+        renderTransition();
+      } else {
+        this.videoElement.onseeked = () => {
+          renderTransition();
+          this.videoElement.onseeked = null;
+        };
+      }
+    } else {
+      this.videoElement.currentTime = prevLocalTime;
+      if (this.videoElement.readyState >= 2) {
+        renderTransition();
+      } else {
+        this.videoElement.onseeked = () => {
+          renderTransition();
+          this.videoElement.onseeked = null;
+        };
       }
     }
   }

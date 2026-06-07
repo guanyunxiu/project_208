@@ -316,92 +316,58 @@ class TransitionManager {
     return null;
   }
 
-  applyTransition(ctx, currentClip, nextClip, progress, currentTime) {
-    if (!currentClip || !nextClip) return;
+  applyTransition(ctx, fromCanvas, toCanvas, transitionType, progress, width, height) {
+    const transition = TRANSITIONS[transitionType] || TRANSITIONS.fade;
+    transition.apply(ctx, fromCanvas, toCanvas, progress, width, height);
+  }
+
+  renderClipToCanvas(clip, canvas, ctx, width, height, videoElement) {
+    if (!videoElement || !videoElement.readyState || videoElement.videoWidth === 0) {
+      return false;
+    }
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.save();
     
-    const transitionData = nextClip.transitionIn;
-    if (!transitionData) return;
+    const centerX = width / 2;
+    const centerY = height / 2;
     
-    const transition = TRANSITIONS[transitionData.type] || TRANSITIONS.fade;
-    const width = ctx.canvas.width / window.devicePixelRatio;
-    const height = ctx.canvas.height / window.devicePixelRatio;
+    ctx.translate(centerX, centerY);
+    ctx.rotate((clip.rotation * Math.PI) / 180);
+    ctx.translate(-centerX, -centerY);
+
+    let drawWidth = videoElement.videoWidth;
+    let drawHeight = videoElement.videoHeight;
+
+    let scaledWidth = Math.min(width, drawWidth * (height / drawHeight));
+    let scaledHeight = Math.min(height, drawHeight * (width / drawWidth));
     
-    this.tempCanvas1.width = width * window.devicePixelRatio;
-    this.tempCanvas1.height = height * window.devicePixelRatio;
-    this.tempCanvas2.width = width * window.devicePixelRatio;
-    this.tempCanvas2.height = height * window.devicePixelRatio;
-    
-    this.tempCtx1.scale(window.devicePixelRatio, window.devicePixelRatio);
-    this.tempCtx2.scale(window.devicePixelRatio, window.devicePixelRatio);
-    
-    this.tempCtx1.drawImage(ctx.canvas, 0, 0, width, height);
-    
-    const activeClips = window.__timelineManager?.getClips() || [];
-    const clipLocalTime = currentTime - nextClip.startTime + nextClip.trimStart;
-    
-    if (window.__videoPlayer && window.__videoPlayer.videoElement) {
-      const video = window.__videoPlayer.videoElement;
-      if (video.src !== nextClip.material.url) {
-        video.src = nextClip.material.url;
-      }
-      
-      const wasPaused = video.paused;
-      video.currentTime = clipLocalTime;
-      
-      if (!wasPaused) {
-        video.play().catch(e => {});
-      }
-      
-      const drawVideo = () => {
-        this.tempCtx2.fillStyle = '#000';
-        this.tempCtx2.fillRect(0, 0, width, height);
-        
-        if (video.readyState >= 2) {
-          this.tempCtx2.save();
-          
-          const centerX = width / 2;
-          const centerY = height / 2;
-          
-          this.tempCtx2.translate(centerX, centerY);
-          this.tempCtx2.rotate((nextClip.rotation * Math.PI) / 180);
-          this.tempCtx2.translate(-centerX, -centerY);
-          
-          let drawWidth = video.videoWidth;
-          let drawHeight = video.videoHeight;
-          
-          let scaledWidth = Math.min(width, drawWidth * (height / drawHeight));
-          let scaledHeight = Math.min(height, drawHeight * (width / drawWidth));
-          
-          if (drawWidth / drawHeight > width / height) {
-            scaledWidth = width;
-            scaledHeight = width * (drawHeight / drawWidth);
-          } else {
-            scaledHeight = height;
-            scaledWidth = height * (drawWidth / drawHeight);
-          }
-          
-          const drawX = (width - scaledWidth) / 2;
-          const drawY = (height - scaledHeight) / 2;
-          
-          this.tempCtx2.drawImage(
-            video,
-            drawX, drawY, scaledWidth, scaledHeight
-          );
-          
-          this.tempCtx2.restore();
-        }
-      };
-      
-      if (video.readyState >= 2) {
-        drawVideo();
-      } else {
-        video.onseeked = () => {
-          drawVideo();
-        };
-      }
+    if (drawWidth / drawHeight > width / height) {
+      scaledWidth = width;
+      scaledHeight = width * (drawHeight / drawWidth);
+    } else {
+      scaledHeight = height;
+      scaledWidth = height * (drawWidth / drawHeight);
     }
     
-    transition.apply(ctx, this.tempCanvas1, this.tempCanvas2, progress, width, height);
+    const drawX = (width - scaledWidth) / 2;
+    const drawY = (height - scaledHeight) / 2;
+
+    try {
+      ctx.drawImage(
+        videoElement,
+        drawX, drawY, scaledWidth, scaledHeight
+      );
+    } catch (e) {
+      console.warn('Transition frame render failed:', e);
+      ctx.restore();
+      return false;
+    }
+
+    ctx.restore();
+    return true;
   }
 
   getTransitions() {

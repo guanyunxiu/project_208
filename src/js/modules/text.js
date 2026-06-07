@@ -97,6 +97,13 @@ class TextManager {
     EventBus.on('item:select', (id) => this.selectItem(id));
     EventBus.on('sticker:import', () => this.stickerFileInput.click());
     
+    EventBus.on('text:update-property', ({ itemId, property, value }) => {
+      this.updateItemProperty(itemId, property, value);
+    });
+    EventBus.on('sticker:update-property', ({ itemId, property, value }) => {
+      this.updateItemProperty(itemId, property, value);
+    });
+    
     this.stickerFileInput.addEventListener('change', (e) => this.handleStickerFiles(e));
   }
 
@@ -559,6 +566,42 @@ class TextManager {
 
   getSelectedItem() {
     return this.selectedItemId ? this.getItemById(this.selectedItemId) : null;
+  }
+
+  clearSelection() {
+    this.selectedItemId = null;
+    this.isDragging = false;
+    this.isResizing = false;
+    this.dragItem = null;
+    EventBus.emit('item:selected', null);
+    EventBus.emit('player:update');
+  }
+
+  updateItemProperty(itemId, property, value) {
+    const item = this.getItemById(itemId);
+    if (!item) return null;
+
+    const propertyMap = {
+      'text': 'content',
+      'bold': 'fontWeight',
+      'italic': 'fontStyle'
+    };
+
+    const actualProperty = propertyMap[property] || property;
+
+    if (actualProperty === 'fontWeight') {
+      item[actualProperty] = value ? 'bold' : 'normal';
+    } else if (actualProperty === 'fontStyle') {
+      item[actualProperty] = value ? 'italic' : 'normal';
+    } else {
+      item[actualProperty] = value;
+    }
+
+    EventBus.emit('text:updated', item);
+    EventBus.emit('sticker:updated', item);
+    EventBus.emit('player:update');
+
+    return item;
   }
 }
 
