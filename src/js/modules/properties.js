@@ -226,8 +226,28 @@ class PropertiesPanel {
   }
 
   setupTextEventListeners() {
+    let inputTimeout = null;
+    
     this.textContent.addEventListener('input', (e) => {
       if (!this.currentTextItem) return;
+      
+      if (inputTimeout) clearTimeout(inputTimeout);
+      
+      this.currentTextItem.content = e.target.value;
+      
+      inputTimeout = setTimeout(() => {
+        EventBus.emit('text:update-property', {
+          itemId: this.currentTextItem.id,
+          property: 'text',
+          value: e.target.value
+        });
+      }, 300);
+    });
+    
+    this.textContent.addEventListener('blur', (e) => {
+      if (!this.currentTextItem) return;
+      if (inputTimeout) clearTimeout(inputTimeout);
+      
       EventBus.emit('text:update-property', {
         itemId: this.currentTextItem.id,
         property: 'text',

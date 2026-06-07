@@ -47,6 +47,8 @@ class VideoEditorApp {
     this.setupTransitionPanel();
     this.setupTextStickerButtons();
     
+    videoPlayer.init();
+    
     setTimeout(() => {
       showToast('欢迎使用 Web Video Editor！', 'info', 3000);
     }, 500);

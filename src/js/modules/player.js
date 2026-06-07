@@ -34,8 +34,6 @@ class VideoPlayer {
 
     this.animationFrameId = null;
     this.isScrubbing = false;
-
-    this.init();
   }
 
   init() {
@@ -74,11 +72,20 @@ class VideoPlayer {
   setupCanvas() {
     const wrapperRect = this.previewWrapper.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
+    
+    let width = wrapperRect.width;
+    let height = wrapperRect.height;
+    
+    if (width <= 0 || height <= 0) {
+      width = 800;
+      height = 450;
+    }
 
-    this.canvasElement.width = wrapperRect.width * dpr;
-    this.canvasElement.height = wrapperRect.height * dpr;
-    this.canvasElement.style.width = wrapperRect.width + 'px';
-    this.canvasElement.style.height = wrapperRect.height + 'px';
+    this.canvasElement.width = width * dpr;
+    this.canvasElement.height = height * dpr;
+    this.canvasElement.style.width = width + 'px';
+    this.canvasElement.style.height = height + 'px';
+    this.canvasCtx.setTransform(1, 0, 0, 1, 0, 0);
     this.canvasCtx.scale(dpr, dpr);
 
     this.renderFrame();
@@ -545,106 +552,88 @@ class VideoPlayer {
   }
 
   renderWithTransition(prevClip, nextClip, transitionInfo, width, height) {
-    if (!transitionManager.tempCanvas1 || !transitionManager.tempCanvas2) {
-      this.drawVideoFrame(nextClip, width, height);
-      this.applyClipFilters(nextClip, width, height);
-      return;
+    this.drawVideoFrame(nextClip, width, height);
+    this.applyClipFilters(nextClip, width, height);
+    this.applyFadeEffect(nextClip, width, height);
+
+    const dpr = window.devicePixelRatio || 1;
+    const actualWidth = this.canvasElement.width;
+    const actualHeight = this.canvasElement.height;
+    const progress = transitionInfo.progress;
+    const transitionType = transitionInfo.transition.type;
+
+    this.canvasCtx.save();
+    this.canvasCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+    if (transitionType === 'fade') {
+      const alpha = Math.abs(progress - 0.5) * 2;
+      this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+      this.canvasCtx.fillRect(0, 0, actualWidth, actualHeight);
+    } else if (transitionType === 'flash') {
+      const alpha = 1 - Math.abs(progress - 0.5) * 2;
+      this.canvasCtx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      this.canvasCtx.fillRect(0, 0, actualWidth, actualHeight);
+    } else if (transitionType === 'slideLeft') {
+      const offset = actualWidth * (1 - progress);
+      this.canvasCtx.fillStyle = '#000';
+      this.canvasCtx.fillRect(0, 0, offset, actualHeight);
+    } else if (transitionType === 'slideRight') {
+      const offset = actualWidth * progress;
+      this.canvasCtx.fillStyle = '#000';
+      this.canvasCtx.fillRect(offset, 0, actualWidth - offset, actualHeight);
+    } else if (transitionType === 'slideUp') {
+      const offset = actualHeight * (1 - progress);
+      this.canvasCtx.fillStyle = '#000';
+      this.canvasCtx.fillRect(0, 0, actualWidth, offset);
+    } else if (transitionType === 'slideDown') {
+      const offset = actualHeight * progress;
+      this.canvasCtx.fillStyle = '#000';
+      this.canvasCtx.fillRect(0, offset, actualWidth, actualHeight - offset);
+    } else if (transitionType === 'dissolve') {
+      const alpha = progress;
+      this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.3})`;
+      this.canvasCtx.fillRect(0, 0, actualWidth, actualHeight);
+    } else if (transitionType === 'wipe') {
+      const wipeWidth = actualWidth * progress;
+      this.canvasCtx.fillStyle = '#000';
+      this.canvasCtx.fillRect(0, 0, wipeWidth, actualHeight);
+    } else if (transitionType === 'circle') {
+      const maxRadius = Math.sqrt(actualWidth * actualWidth + actualHeight * actualHeight) / 2;
+      const radius = maxRadius * progress;
+      this.canvasCtx.save();
+      this.canvasCtx.beginPath();
+      this.canvasCtx.rect(0, 0, actualWidth, actualHeight);
+      this.canvasCtx.arc(actualWidth / 2, actualHeight / 2, radius, 0, Math.PI * 2, true);
+      this.canvasCtx.closePath();
+      this.canvasCtx.fillStyle = '#000';
+      this.canvasCtx.fill();
+      this.canvasCtx.restore();
+    } else if (transitionType === 'zoom') {
+      const scale = 1 + progress * 0.3;
+      const alpha = 1 - progress;
+      this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${(1 - alpha) * 0.5})`;
+      this.canvasCtx.fillRect(0, 0, actualWidth, actualHeight);
+    } else if (transitionType === 'flip') {
+      const alpha = Math.abs(Math.cos(progress * Math.PI));
+      this.canvasCtx.fillStyle = `rgba(0, 0, 0, ${1 - alpha})`;
+      this.canvasCtx.fillRect(0, 0, actualWidth, actualHeight);
     }
 
-    const dpr = window.devicePixelRatio;
-    transitionManager.tempCanvas1.width = width * dpr;
-    transitionManager.tempCanvas1.height = height * dpr;
-    transitionManager.tempCanvas2.width = width * dpr;
-    transitionManager.tempCanvas2.height = height * dpr;
-
-    const tempCtx1 = transitionManager.tempCtx1;
-    const tempCtx2 = transitionManager.tempCtx2;
-    
-    tempCtx1.setTransform(dpr, 0, 0, dpr, 0, 0);
-    tempCtx2.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    tempCtx1.fillStyle = '#000';
-    tempCtx1.fillRect(0, 0, width, height);
-    tempCtx2.fillStyle = '#000';
-    tempCtx2.fillRect(0, 0, width, height);
-
-    const currentSrc = this.videoElement.src;
-    const currentTime = this.videoElement.currentTime;
-    const wasPlaying = !this.videoElement.paused;
-
-    const prevLocalTime = prevClip.trimEnd - 0.01;
-    const nextLocalTime = this.currentTime - nextClip.startTime + nextClip.trimStart;
-
-    const renderTransition = () => {
-      tempCtx1.save();
-      tempCtx1.drawImage(this.videoElement, 0, 0, width, height);
-      tempCtx1.restore();
-
-      this.videoElement.src = nextClip.material.url;
-      this.videoElement.currentTime = nextLocalTime;
-
-      const renderNextFrame = () => {
-        tempCtx2.save();
-        tempCtx2.drawImage(this.videoElement, 0, 0, width, height);
-        tempCtx2.restore();
-
-        transitionManager.applyTransition(
-          this.canvasCtx,
-          transitionManager.tempCanvas1,
-          transitionManager.tempCanvas2,
-          transitionInfo.transition.type,
-          transitionInfo.progress,
-          width,
-          height
-        );
-
-        this.applyClipFilters(nextClip, width, height);
-
-        this.videoElement.src = currentSrc;
-        this.videoElement.currentTime = currentTime;
-        if (wasPlaying) {
-          this.videoElement.play().catch(e => {});
-        }
-      };
-
-      if (this.videoElement.readyState >= 2) {
-        renderNextFrame();
-      } else {
-        this.videoElement.onseeked = () => {
-          renderNextFrame();
-          this.videoElement.onseeked = null;
-        };
-      }
-    };
-
-    if (this.videoElement.src !== prevClip.material.url) {
-      this.videoElement.src = prevClip.material.url;
-      this.videoElement.currentTime = prevLocalTime;
-      
-      if (this.videoElement.readyState >= 2) {
-        renderTransition();
-      } else {
-        this.videoElement.onseeked = () => {
-          renderTransition();
-          this.videoElement.onseeked = null;
-        };
-      }
-    } else {
-      this.videoElement.currentTime = prevLocalTime;
-      if (this.videoElement.readyState >= 2) {
-        renderTransition();
-      } else {
-        this.videoElement.onseeked = () => {
-          renderTransition();
-          this.videoElement.onseeked = null;
-        };
-      }
-    }
+    this.canvasCtx.restore();
   }
 
   applyClipFilters(clip, width, height) {
     if (filterManager) {
-      filterManager.applyFilters(this.canvasCtx, width, height, clip, this.currentTime);
+      const dpr = window.devicePixelRatio || 1;
+      const actualWidth = this.canvasElement.width;
+      const actualHeight = this.canvasElement.height;
+      
+      this.canvasCtx.save();
+      this.canvasCtx.setTransform(1, 0, 0, 1, 0, 0);
+      
+      filterManager.applyFilters(this.canvasCtx, actualWidth, actualHeight, clip, this.currentTime);
+      
+      this.canvasCtx.restore();
     }
   }
 
