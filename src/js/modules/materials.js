@@ -26,10 +26,46 @@ class MaterialManager {
 
     document.body.addEventListener('drop', (e) => {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/'));
-      if (files.length > 0) {
-        this.processFiles(files);
+      const videoFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/'));
+      if (videoFiles.length > 0) {
+        this.processFiles(videoFiles);
       }
+    });
+  }
+
+  async showAudioTypeSelector() {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'audio-type-modal';
+      modal.innerHTML = `
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <h3>选择音频类型</h3>
+          <p>请选择这些音频文件的类型：</p>
+          <div class="audio-type-buttons">
+            <button class="btn-primary" data-type="bgm">🎵 背景音乐</button>
+            <button class="btn-secondary" data-type="voice">🎤 人声</button>
+          </div>
+          <button class="modal-close-btn">取消</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      modal.querySelectorAll('[data-type]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const type = btn.dataset.type;
+          modal.remove();
+          resolve(type);
+        });
+      });
+      modal.querySelector('.modal-close-btn').addEventListener('click', () => {
+        modal.remove();
+        resolve(null);
+      });
+      modal.querySelector('.modal-overlay').addEventListener('click', () => {
+        modal.remove();
+        resolve(null);
+      });
     });
   }
 
@@ -44,28 +80,44 @@ class MaterialManager {
   async processFiles(files) {
     const videoFiles = files.filter(f => f.type.startsWith('video/') || 
       ['mp4', 'mov', 'webm'].some(ext => f.name.toLowerCase().endsWith(ext)));
+    
+    const audioFiles = files.filter(f => 
+      f.type.startsWith('audio/') || 
+      ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].some(ext => 
+        f.name.toLowerCase().endsWith(ext)
+      )
+    );
 
-    if (videoFiles.length === 0) {
-      showToast('请选择有效的视频文件', 'error');
+    if (videoFiles.length === 0 && audioFiles.length === 0) {
+      showToast('请选择有效的视频或音频文件', 'error');
       return;
     }
 
-    showToast(`正在导入 ${videoFiles.length} 个视频...`, 'info');
+    if (videoFiles.length > 0) {
+      showToast(`正在导入 ${videoFiles.length} 个视频...`, 'info');
 
-    for (const file of videoFiles) {
-      try {
-        const material = await this.createMaterial(file);
-        this.materials.push(material);
-        this.renderMaterialItem(material);
-        EventBus.emit('material:added', material);
-      } catch (error) {
-        console.error('导入视频失败:', file.name, error);
-        showToast(`导入失败: ${file.name}`, 'error');
+      for (const file of videoFiles) {
+        try {
+          const material = await this.createMaterial(file);
+          this.materials.push(material);
+          this.renderMaterialItem(material);
+          EventBus.emit('material:added', material);
+        } catch (error) {
+          console.error('导入视频失败:', file.name, error);
+          showToast(`导入失败: ${file.name}`, 'error');
+        }
       }
+
+      this.updateEmptyState();
+      showToast(`成功导入 ${videoFiles.length} 个视频`, 'success');
     }
 
-    this.updateEmptyState();
-    showToast(`成功导入 ${videoFiles.length} 个视频`, 'success');
+    if (audioFiles.length > 0 && window.__audioManager) {
+      const type = await this.showAudioTypeSelector();
+      if (type) {
+        await window.__audioManager.processAudioFiles(audioFiles, type);
+      }
+    }
   }
 
   async createMaterial(file) {

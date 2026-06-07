@@ -6,15 +6,18 @@ class PropertiesPanel {
     this.clipProperties = document.getElementById('clip-properties');
     this.textProperties = document.getElementById('text-properties');
     this.stickerProperties = document.getElementById('sticker-properties');
+    this.audioProperties = document.getElementById('audio-properties');
     
     this.currentClip = null;
     this.currentTextItem = null;
     this.currentStickerItem = null;
+    this.currentAudioClip = null;
     this.currentType = null;
 
     this.initClipElements();
     this.initTextElements();
     this.initStickerElements();
+    this.initAudioElements();
     this.init();
   }
 
@@ -86,10 +89,33 @@ class PropertiesPanel {
     this.stickerBtnDelete = document.getElementById('sticker-btn-delete');
   }
 
+  initAudioElements() {
+    this.audioPropName = document.getElementById('audio-prop-name');
+    this.audioPropDuration = document.getElementById('audio-prop-duration');
+    this.audioPropType = document.getElementById('audio-prop-type');
+    
+    this.audioVolumeSlider = document.getElementById('audio-prop-volume');
+    this.audioVolumeValue = document.getElementById('audio-volume-value');
+    this.audioMuteBtn = document.getElementById('audio-btn-mute');
+    
+    this.audioFadeInInput = document.getElementById('audio-prop-fadein');
+    this.audioFadeOutInput = document.getElementById('audio-prop-fadeout');
+    
+    this.audioTrimStartInput = document.getElementById('audio-trim-start');
+    this.audioTrimEndInput = document.getElementById('audio-trim-end');
+    this.audioSetStartBtn = document.getElementById('audio-btn-set-start');
+    this.audioSetEndBtn = document.getElementById('audio-btn-set-end');
+    this.audioApplyTrimBtn = document.getElementById('audio-btn-apply-trim');
+    
+    this.audioSplitBtn = document.getElementById('audio-btn-split');
+    this.audioDeleteBtn = document.getElementById('audio-btn-delete');
+  }
+
   init() {
     this.setupClipEventListeners();
     this.setupTextEventListeners();
     this.setupStickerEventListeners();
+    this.setupAudioEventListeners();
 
     EventBus.on('clip:selected', (clip) => this.onClipSelected(clip));
     EventBus.on('clip:updated', (clip) => {
@@ -107,6 +133,12 @@ class PropertiesPanel {
     EventBus.on('sticker:updated', (item) => {
       if (item && this.currentStickerItem && item.id === this.currentStickerItem.id) {
         this.updateStickerItem(item);
+      }
+    });
+    EventBus.on('audio-clip:selected', (clip) => this.onAudioSelected(clip));
+    EventBus.on('audio-clip:updated', (clip) => {
+      if (clip && this.currentAudioClip && clip.id === this.currentAudioClip.id) {
+        this.updateAudioClip(clip);
       }
     });
     EventBus.on('selection:cleared', () => this.clearSelection());
@@ -493,17 +525,106 @@ class PropertiesPanel {
     });
   }
 
+  setupAudioEventListeners() {
+    this.audioVolumeSlider.addEventListener('input', (e) => {
+      if (!this.currentAudioClip) return;
+      const volume = parseInt(e.target.value) / 100;
+      this.audioVolumeValue.textContent = e.target.value;
+      EventBus.emit('audio-clip:update-property', {
+        clipId: this.currentAudioClip.id,
+        property: 'volume',
+        value: volume
+      });
+    });
+
+    this.audioMuteBtn.addEventListener('click', () => {
+      if (!this.currentAudioClip) return;
+      const isMuted = !this.currentAudioClip.muted;
+      this.audioMuteBtn.textContent = isMuted ? '🔇' : '🔊';
+      EventBus.emit('audio-clip:update-property', {
+        clipId: this.currentAudioClip.id,
+        property: 'muted',
+        value: isMuted
+      });
+    });
+
+    this.audioFadeInInput.addEventListener('change', (e) => {
+      if (!this.currentAudioClip) return;
+      const value = clamp(parseFloat(e.target.value) || 0, 0, this.currentAudioClip.endTime - this.currentAudioClip.startTime);
+      e.target.value = value;
+      EventBus.emit('audio-clip:update-property', {
+        clipId: this.currentAudioClip.id,
+        property: 'fadeIn',
+        value: value
+      });
+    });
+
+    this.audioFadeOutInput.addEventListener('change', (e) => {
+      if (!this.currentAudioClip) return;
+      const value = clamp(parseFloat(e.target.value) || 0, 0, this.currentAudioClip.endTime - this.currentAudioClip.startTime);
+      e.target.value = value;
+      EventBus.emit('audio-clip:update-property', {
+        clipId: this.currentAudioClip.id,
+        property: 'fadeOut',
+        value: value
+      });
+    });
+
+    this.audioSetStartBtn.addEventListener('click', () => {
+      if (!this.currentAudioClip || !window.__videoPlayer) return;
+      const currentTime = window.__videoPlayer.getCurrentTime();
+      const clipLocalTime = currentTime - this.currentAudioClip.startTime + this.currentAudioClip.trimStart;
+      this.audioTrimStartInput.value = clamp(clipLocalTime, 0, this.currentAudioClip.trimEnd - 0.1).toFixed(2);
+    });
+
+    this.audioSetEndBtn.addEventListener('click', () => {
+      if (!this.currentAudioClip || !window.__videoPlayer) return;
+      const currentTime = window.__videoPlayer.getCurrentTime();
+      const clipLocalTime = currentTime - this.currentAudioClip.startTime + this.currentAudioClip.trimStart;
+      this.audioTrimEndInput.value = clamp(clipLocalTime, this.currentAudioClip.trimStart + 0.1, this.currentAudioClip.duration).toFixed(2);
+    });
+
+    this.audioApplyTrimBtn.addEventListener('click', () => {
+      if (!this.currentAudioClip) return;
+      const trimStart = parseFloat(this.audioTrimStartInput.value);
+      const trimEnd = parseFloat(this.audioTrimEndInput.value);
+      
+      if (trimEnd <= trimStart) {
+        EventBus.emit('toast:show', { message: '出点必须大于入点', type: 'error' });
+        return;
+      }
+
+      EventBus.emit('audio-clip:trim', {
+        clipId: this.currentAudioClip.id,
+        trimStart: trimStart,
+        trimEnd: trimEnd
+      });
+    });
+
+    this.audioSplitBtn.addEventListener('click', () => {
+      if (!this.currentAudioClip || !window.__videoPlayer) return;
+      EventBus.emit('timeline:split', window.__videoPlayer.getCurrentTime());
+    });
+
+    this.audioDeleteBtn.addEventListener('click', () => {
+      if (!this.currentAudioClip) return;
+      EventBus.emit('audio-clip:delete', this.currentAudioClip.id);
+    });
+  }
+
   hideAllPanels() {
     this.noSelection.style.display = 'none';
     this.clipProperties.style.display = 'none';
     this.textProperties.style.display = 'none';
     this.stickerProperties.style.display = 'none';
+    this.audioProperties.style.display = 'none';
   }
 
   clearSelection() {
     this.currentClip = null;
     this.currentTextItem = null;
     this.currentStickerItem = null;
+    this.currentAudioClip = null;
     this.currentType = null;
     this.hideAllPanels();
     this.noSelection.style.display = 'flex';
@@ -629,6 +750,48 @@ class PropertiesPanel {
     this.stickerOpacityValue.textContent = Math.round((item.opacity || 1) * 100);
     this.stickerFadeIn.value = item.fadeIn || 0;
     this.stickerFadeOut.value = item.fadeOut || 0;
+  }
+
+  onAudioSelected(clip) {
+    this.currentClip = null;
+    this.currentTextItem = null;
+    this.currentStickerItem = null;
+    this.currentAudioClip = clip;
+    this.currentType = 'audio';
+
+    this.hideAllPanels();
+    if (!clip) {
+      this.noSelection.style.display = 'flex';
+      return;
+    }
+
+    this.audioProperties.style.display = 'flex';
+    this.updateAudioClip(clip);
+  }
+
+  updateAudioClip(clip) {
+    if (!clip) return;
+    this.currentAudioClip = clip;
+
+    const typeInfo = clip.audioType === 'bgm' 
+      ? { name: '背景音乐', icon: '🎵' } 
+      : { name: '人声', icon: '🎤' };
+
+    this.audioPropName.textContent = clip.name;
+    this.audioPropDuration.textContent = formatTime(clip.endTime - clip.startTime);
+    this.audioPropType.textContent = `${typeInfo.icon} ${typeInfo.name}`;
+
+    this.audioVolumeSlider.value = Math.round(clip.volume * 100);
+    this.audioVolumeValue.textContent = Math.round(clip.volume * 100);
+    this.audioMuteBtn.textContent = clip.muted ? '🔇' : '🔊';
+
+    this.audioFadeInInput.value = clip.fadeIn || 0;
+    this.audioFadeOutInput.value = clip.fadeOut || 0;
+
+    this.audioTrimStartInput.value = clip.trimStart.toFixed(2);
+    this.audioTrimEndInput.value = clip.trimEnd.toFixed(2);
+    this.audioTrimStartInput.max = (clip.trimEnd - 0.1).toFixed(2);
+    this.audioTrimEndInput.min = (clip.trimStart + 0.1).toFixed(2);
   }
 }
 

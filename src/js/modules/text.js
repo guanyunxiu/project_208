@@ -577,6 +577,34 @@ class TextManager {
     EventBus.emit('player:update');
   }
 
+  getTextItemsForHistory() {
+    const serializeItem = (item) => {
+      const { element, ...rest } = item;
+      return JSON.parse(JSON.stringify(rest));
+    };
+    
+    return {
+      texts: this.texts.map(serializeItem),
+      stickers: this.stickers.map(serializeItem)
+    };
+  }
+
+  restoreFromHistory(data) {
+    if (!data) return;
+    
+    this.texts = data.texts || [];
+    this.stickers = data.stickers || [];
+    this.selectedItemId = null;
+    
+    for (const text of this.texts) {
+      this.setupTextElement(text);
+    }
+    
+    EventBus.emit('text:restored');
+    EventBus.emit('sticker:restored');
+    EventBus.emit('player:update');
+  }
+
   updateItemProperty(itemId, property, value) {
     const item = this.getItemById(itemId);
     if (!item) return null;

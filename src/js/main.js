@@ -8,6 +8,7 @@ import { storageManager } from './modules/storage.js';
 import { filterManager, FILTERS, COLOR_ADJUSTMENT } from './modules/filters.js';
 import { textManager } from './modules/text.js';
 import { transitionManager, TRANSITIONS } from './modules/transitions.js';
+import { audioManager } from './modules/audio.js';
 
 window.__materialManager = materialManager;
 window.__timelineManager = timelineManager;
@@ -18,6 +19,7 @@ window.__storageManager = storageManager;
 window.__filterManager = filterManager;
 window.__textManager = textManager;
 window.__transitionManager = transitionManager;
+window.__audioManager = audioManager;
 
 class VideoEditorApp {
   constructor() {
@@ -46,8 +48,11 @@ class VideoEditorApp {
     this.setupFilterPanel();
     this.setupTransitionPanel();
     this.setupTextStickerButtons();
+    this.setupTimelineToolbar();
+    this.setupMasterVolumeControls();
     
     videoPlayer.init();
+    audioManager.init();
     
     setTimeout(() => {
       showToast('欢迎使用 Web Video Editor！', 'info', 3000);
@@ -124,6 +129,19 @@ class VideoEditorApp {
       showToast('裁剪已应用', 'success');
     });
 
+    EventBus.on('audio-clip:update-property', ({ clipId, property, value }) => {
+      timelineManager.updateAudioClipProperty(clipId, property, value);
+    });
+
+    EventBus.on('audio-clip:delete', (clipId) => {
+      timelineManager.deleteAudioClip(clipId);
+    });
+
+    EventBus.on('audio-clip:trim', ({ clipId, trimStart, trimEnd }) => {
+      timelineManager.trimAudioClip(clipId, trimStart, trimEnd);
+      showToast('音频裁剪已应用', 'success');
+    });
+
     EventBus.on('timeline:split', (time) => {
       const result = timelineManager.splitAtCurrentTime();
       if (result) {
@@ -176,6 +194,8 @@ class VideoEditorApp {
         EventBus.emit('text:selected', item);
       } else if (type === 'sticker') {
         EventBus.emit('sticker:selected', item);
+      } else if (type === 'audio') {
+        EventBus.emit('audio-clip:selected', item);
       }
     });
 
@@ -201,6 +221,10 @@ class VideoEditorApp {
           break;
       }
       videoPlayer.renderFrame();
+    });
+
+    EventBus.on('track:add', (trackType) => {
+      timelineManager.addTrack(trackType);
     });
   }
 
@@ -244,6 +268,10 @@ class VideoEditorApp {
               e.preventDefault();
               timelineManager.deleteClip(timelineManager.selectedClipId);
               showToast('片段已删除', 'info');
+            } else if (timelineManager.selectedAudioClipId) {
+              e.preventDefault();
+              timelineManager.deleteAudioClip(timelineManager.selectedAudioClipId);
+              showToast('音频片段已删除', 'info');
             } else if (textManager.selectedItemId) {
               e.preventDefault();
               textManager.deleteItem(textManager.selectedItemId);
@@ -591,11 +619,90 @@ class VideoEditorApp {
   }
 
   undo() {
-    showToast('撤销功能开发中...', 'info');
+    const result = timelineManager.undo();
+    if (result) {
+      showToast('已撤销', 'info');
+    } else {
+      showToast('没有可撤销的操作', 'warning');
+    }
   }
 
   redo() {
-    showToast('重做功能开发中...', 'info');
+    const result = timelineManager.redo();
+    if (result) {
+      showToast('已重做', 'info');
+    } else {
+      showToast('没有可重做的操作', 'warning');
+    }
+  }
+
+  setupTimelineToolbar() {
+    const btnUndo = document.getElementById('btn-undo');
+    const btnRedo = document.getElementById('btn-redo');
+    const btnSnap = document.getElementById('btn-snap');
+    const btnSplit = document.getElementById('btn-split');
+
+    if (btnUndo) {
+      btnUndo.addEventListener('click', () => this.undo());
+    }
+    if (btnRedo) {
+      btnRedo.addEventListener('click', () => this.redo());
+    }
+    if (btnSnap) {
+      btnSnap.addEventListener('click', () => {
+        const enabled = timelineManager.toggleSnap();
+        btnSnap.classList.toggle('active', enabled);
+        showToast(`帧吸附已${enabled ? '开启' : '关闭'}`, 'info');
+      });
+    }
+    if (btnSplit) {
+      btnSplit.addEventListener('click', () => {
+        EventBus.emit('timeline:split', videoPlayer.getCurrentTime());
+      });
+    }
+
+    const btnImportAudio = document.getElementById('btn-import-audio');
+    if (btnImportAudio) {
+      btnImportAudio.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac';
+        input.multiple = true;
+        input.onchange = async (e) => {
+          const files = Array.from(e.target.files);
+          if (files.length > 0) {
+            const type = await materialManager.showAudioTypeSelector();
+            if (type) {
+              await audioManager.processAudioFiles(files, type);
+            }
+          }
+        };
+        input.click();
+      });
+    }
+  }
+
+  setupMasterVolumeControls() {
+    const bgmSlider = document.getElementById('master-bgm-volume');
+    const bgmValue = document.getElementById('bgm-master-value');
+    const voiceSlider = document.getElementById('master-voice-volume');
+    const voiceValue = document.getElementById('voice-master-value');
+
+    if (bgmSlider && bgmValue) {
+      bgmSlider.addEventListener('input', (e) => {
+        const volume = parseInt(e.target.value) / 100;
+        bgmValue.textContent = e.target.value;
+        EventBus.emit('audio:update-master-volume', { type: 'bgm', value: volume });
+      });
+    }
+
+    if (voiceSlider && voiceValue) {
+      voiceSlider.addEventListener('input', (e) => {
+        const volume = parseInt(e.target.value) / 100;
+        voiceValue.textContent = e.target.value;
+        EventBus.emit('audio:update-master-volume', { type: 'voice', value: volume });
+      });
+    }
   }
 
   getProcessingWorker() {

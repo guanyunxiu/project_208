@@ -2,6 +2,7 @@ import { EventBus, formatTime, getAspectRatio, clamp } from './utils.js';
 import { filterManager } from './filters.js';
 import { textManager } from './text.js';
 import { transitionManager, TRANSITIONS } from './transitions.js';
+import { audioManager } from './audio.js';
 
 class VideoPlayer {
   constructor() {
@@ -28,9 +29,8 @@ class VideoPlayer {
     this.activeClips = [];
     this.loadedClips = new Map();
 
-    this.audioContext = null;
-    this.audioSource = null;
-    this.gainNode = null;
+    this.activeAudioClips = new Map();
+    this.videoVolume = 1;
 
     this.animationFrameId = null;
     this.isScrubbing = false;
@@ -39,7 +39,6 @@ class VideoPlayer {
   init() {
     this.setupCanvas();
     this.setupEventListeners();
-    this.setupAudio();
     this.setupInteractionHandlers();
 
     EventBus.on('clip:added', () => this.updateClips());
@@ -52,6 +51,7 @@ class VideoPlayer {
       this.updateTimeDisplay();
       this.updateScrubber();
       this.renderFrame();
+      this.updateAudioClips();
     });
     EventBus.on('timeline:duration', (duration) => this.updateDuration(duration));
     EventBus.on('material:preview', (material) => this.previewMaterial(material));
@@ -65,6 +65,22 @@ class VideoPlayer {
     EventBus.on('sticker:updated', () => this.renderFrame());
     EventBus.on('sticker:deleted', () => this.renderFrame());
     EventBus.on('item:selected', () => this.renderFrame());
+
+    EventBus.on('audio-clip:added', () => this.updateAudioClips());
+    EventBus.on('audio-clip:deleted', () => this.updateAudioClips());
+    EventBus.on('audio-clip:updated', () => this.updateAudioClips());
+    EventBus.on('audio:preview', (audio) => this.previewAudio(audio));
+
+    EventBus.on('timeline:undo-performed', () => {
+      this.updateClips();
+      this.updateAudioClips();
+      this.renderFrame();
+    });
+    EventBus.on('timeline:redo-performed', () => {
+      this.updateClips();
+      this.updateAudioClips();
+      this.renderFrame();
+    });
 
     window.addEventListener('resize', () => this.setupCanvas());
   }
@@ -91,14 +107,65 @@ class VideoPlayer {
     this.renderFrame();
   }
 
-  setupAudio() {
-    try {
-      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      this.gainNode = this.audioContext.createGain();
-      this.gainNode.connect(this.audioContext.destination);
-    } catch (e) {
-      console.warn('Web Audio API not supported:', e);
+  previewAudio(audio) {
+    const tempAudio = document.createElement('audio');
+    tempAudio.src = audio.url;
+    tempAudio.controls = true;
+    tempAudio.style.position = 'fixed';
+    tempAudio.style.bottom = '20px';
+    tempAudio.style.right = '20px';
+    tempAudio.style.zIndex = '9999';
+    document.body.appendChild(tempAudio);
+    tempAudio.play().catch(e => console.warn('Audio preview failed:', e));
+    
+    tempAudio.addEventListener('ended', () => {
+      tempAudio.remove();
+    });
+    
+    setTimeout(() => {
+      if (document.body.contains(tempAudio)) {
+        tempAudio.remove();
+      }
+    }, 60000);
+  }
+
+  updateAudioClips() {
+    if (!window.__timelineManager || !audioManager) return;
+    
+    const activeAudioClips = window.__timelineManager.getActiveAudioClipsAtTime(this.currentTime);
+    
+    for (const [id, clip] of this.activeAudioClips) {
+      const isStillActive = activeAudioClips.some(c => c.id === id);
+      if (!isStillActive) {
+        audioManager.stopAudioClip(clip);
+        this.activeAudioClips.delete(id);
+      }
     }
+    
+    for (const clip of activeAudioClips) {
+      if (!clip.muted) {
+        if (!this.activeAudioClips.has(clip.id)) {
+          this.activeAudioClips.set(clip.id, clip);
+        }
+        
+        const clipLocalTime = this.currentTime - clip.startTime + clip.trimStart;
+        if (clip.element && Math.abs(clip.element.currentTime - clipLocalTime) > 0.1) {
+          clip.element.currentTime = clamp(clipLocalTime, clip.trimStart, clip.trimEnd);
+        }
+        
+        if (this.isPlaying) {
+          audioManager.playAudioClip(clip);
+          audioManager.applyFadeEffect(clip, this.currentTime);
+        }
+      }
+    }
+  }
+
+  stopAllAudioClips() {
+    for (const [id, clip] of this.activeAudioClips) {
+      audioManager.stopAudioClip(clip);
+    }
+    this.activeAudioClips.clear();
   }
 
   setupInteractionHandlers() {
@@ -218,11 +285,10 @@ class VideoPlayer {
     this.isPlaying = true;
     this.playBtn.textContent = '⏸';
 
-    if (this.audioContext?.state === 'suspended') {
-      this.audioContext.resume();
-    }
+    audioManager.resumeContext();
 
     this.videoElement.play().catch(e => console.warn('Playback failed:', e));
+    this.updateAudioClips();
     this.startRenderLoop();
     EventBus.emit('player:play');
   }
@@ -231,6 +297,7 @@ class VideoPlayer {
     this.isPlaying = false;
     this.playBtn.textContent = '▶';
     this.videoElement.pause();
+    this.stopAllAudioClips();
     this.stopRenderLoop();
     EventBus.emit('player:pause');
   }
@@ -271,6 +338,7 @@ class VideoPlayer {
       this.videoElement.pause();
     }
 
+    this.updateAudioClips();
     this.renderFrame();
     EventBus.emit('player:seek', this.currentTime);
   }
@@ -331,22 +399,23 @@ class VideoPlayer {
 
       const track = window.__timelineManager?.getTracks().find(t => t.id === topClip.trackId);
       if (track && !track.muted && !topClip.muted) {
-        this.applyAudioEffects(topClip);
-      } else if (this.gainNode) {
-        this.gainNode.gain.value = 0;
+        this.videoElement.volume = clamp(topClip.volume * this.videoVolume, 0, 1);
+        this.applyVideoAudioFade(topClip);
+      } else {
+        this.videoElement.volume = 0;
       }
     } else {
       this.currentTime = Math.min(this.currentTime + 1/30, this.totalDuration);
     }
 
+    this.updateAudioClips();
+    
     this.updateTimeDisplay();
     this.updateScrubber();
     EventBus.emit('player:timeupdate', this.currentTime);
   }
 
-  applyAudioEffects(clip) {
-    if (!this.gainNode) return;
-    
+  applyVideoAudioFade(clip) {
     const clipProgress = (this.currentTime - clip.startTime) / (clip.endTime - clip.startTime);
     let gainMultiplier = 1;
 
@@ -356,7 +425,7 @@ class VideoPlayer {
       gainMultiplier = (1 - clipProgress) / (clip.fadeOut / (clip.endTime - clip.startTime));
     }
 
-    this.gainNode.gain.value = clamp(clip.volume * gainMultiplier, 0, 2);
+    this.videoElement.volume = clamp(clip.volume * this.videoVolume * gainMultiplier, 0, 1);
   }
 
   async switchToNextClip(nextClip, currentClip) {

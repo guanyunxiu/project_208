@@ -34,6 +34,7 @@
       <aside class="panel panel-left" id="materials-panel">
         <div class="panel-tabs">
           <button class="tab-btn active" data-tab="materials">📁 素材</button>
+          <button class="tab-btn" data-tab="audio">🎵 音频</button>
           <button class="tab-btn" data-tab="filters">🎨 滤镜</button>
           <button class="tab-btn" data-tab="transitions">✨ 转场</button>
         </div>
@@ -44,12 +45,41 @@
               <h2>素材库</h2>
               <button id="btn-import" class="btn-small primary">+ 导入</button>
             </div>
-            <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,image/*" multiple hidden>
+            <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,image/*,audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac" multiple hidden>
             <div id="materials-list" class="materials-list"></div>
             <div id="empty-state" class="empty-state">
               <div class="empty-icon">🎞️</div>
               <p>点击上方「+ 导入」按钮</p>
               <p class="sub">支持视频和图片格式</p>
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-audio">
+            <div class="panel-header">
+              <h2>音频素材</h2>
+              <button id="btn-import-audio" class="btn-small primary">+ 导入音频</button>
+            </div>
+            <div id="audio-materials-list" class="materials-list"></div>
+            <div id="audio-empty-state" class="empty-state">
+              <div class="empty-icon">🎵</div>
+              <p>点击上方「+ 导入音频」按钮</p>
+              <p class="sub">支持 MP3、WAV、OGG、M4A、FLAC</p>
+            </div>
+            
+            <div class="master-volume-controls">
+              <h3>主音量控制</h3>
+              <div class="volume-control">
+                <span class="volume-icon">🎵</span>
+                <label>背景音乐</label>
+                <input type="range" id="master-bgm-volume" min="0" max="200" value="100" class="slider">
+                <span class="volume-value"><span id="bgm-master-value">100</span>%</span>
+              </div>
+              <div class="volume-control">
+                <span class="volume-icon">🎤</span>
+                <label>人声</label>
+                <input type="range" id="master-voice-volume" min="0" max="200" value="100" class="slider">
+                <span class="volume-value"><span id="voice-master-value">100</span>%</span>
+              </div>
             </div>
           </div>
 
@@ -416,6 +446,72 @@
               </div>
             </div>
           </div>
+
+          <div id="audio-properties" class="properties-content" style="display: none;">
+            <div class="property-group">
+              <label class="property-label">音频信息</label>
+              <div class="info-row">
+                <span class="info-key">名称:</span>
+                <span class="info-value" id="audio-prop-name">-</span>
+              </div>
+              <div class="info-row">
+                <span class="info-key">时长:</span>
+                <span class="info-value" id="audio-prop-duration">-</span>
+              </div>
+              <div class="info-row">
+                <span class="info-key">类型:</span>
+                <span class="info-value" id="audio-prop-type">-</span>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">音量</label>
+              <div class="volume-control">
+                <input type="range" id="audio-prop-volume" min="0" max="200" value="100" class="slider">
+                <span class="volume-value"><span id="audio-volume-value">100</span>%</span>
+                <button id="audio-btn-mute" class="btn-small" title="静音">🔊</button>
+              </div>
+              <div class="fade-controls">
+                <div class="fade-row">
+                  <label>淡入:</label>
+                  <input type="number" id="audio-prop-fadein" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                </div>
+                <div class="fade-row">
+                  <label>淡出:</label>
+                  <input type="number" id="audio-prop-fadeout" min="0" max="10" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">裁剪</label>
+              <div class="trim-controls">
+                <div class="trim-row">
+                  <label>入点:</label>
+                  <input type="number" id="audio-trim-start" min="0" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                  <button id="audio-btn-set-start" class="btn-small">设为当前</button>
+                </div>
+                <div class="trim-row">
+                  <label>出点:</label>
+                  <input type="number" id="audio-trim-end" min="0" step="0.1" value="0" class="number-input">
+                  <span class="unit">秒</span>
+                  <button id="audio-btn-set-end" class="btn-small">设为当前</button>
+                </div>
+                <button id="audio-btn-apply-trim" class="action-btn primary w-full">应用裁剪</button>
+              </div>
+            </div>
+
+            <div class="property-group">
+              <label class="property-label">操作</label>
+              <div class="action-buttons">
+                <button id="audio-btn-split" class="action-btn secondary">✂️ 分割</button>
+                <button id="audio-btn-delete" class="action-btn danger">🗑️ 删除</button>
+              </div>
+            </div>
+          </div>
         </div>
       </aside>
     </main>
@@ -423,10 +519,16 @@
     <footer class="timeline-container">
       <div class="timeline-header">
         <div class="timeline-toolbar">
+          <button id="btn-undo" class="btn-small" title="撤销 (Ctrl+Z)">↶ 撤销</button>
+          <button id="btn-redo" class="btn-small" title="重做 (Ctrl+Shift+Z)">↷ 重做</button>
+          <span class="toolbar-divider"></span>
           <button id="btn-zoom-in" class="btn-small" title="放大">🔍+</button>
           <button id="btn-zoom-out" class="btn-small" title="缩小">🔍-</button>
           <button id="btn-fit" class="btn-small" title="适应">⬛</button>
           <span class="zoom-level">缩放: <span id="zoom-value">100</span>%</span>
+          <span class="toolbar-divider"></span>
+          <button id="btn-snap" class="btn-small active" title="帧吸附对齐">🧲 吸附</button>
+          <button id="btn-split" class="btn-small" title="在当前位置分割">✂️ 分割</button>
         </div>
         <div class="timeline-ruler-container">
           <canvas id="ruler-canvas" class="ruler-canvas"></canvas>
